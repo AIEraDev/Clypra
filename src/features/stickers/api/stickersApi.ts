@@ -13,6 +13,8 @@ export type StickerCategory =
 
 export interface StickerItem {
   id: string;
+  providerId?: string;
+  shape?: import("@/features/stickers/types").ShapeSpec;
   name: string;
   category: StickerCategory | string;
   thumbnailUrl: string;
@@ -21,7 +23,7 @@ export interface StickerItem {
   preview?: string;
   isPremium?: boolean;
   tags?: string[];
-  kind?: "lottie" | "webp" | "png" | "svg";
+  kind?: "lottie" | "webp" | "png" | "svg" | "gif" | "apng";
   animated?: boolean;
   sha256?: string;
   bytes?: number;

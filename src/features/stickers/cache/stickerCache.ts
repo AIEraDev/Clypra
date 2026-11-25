@@ -5,10 +5,19 @@
  * ETag revalidation, and bundled starter support.
  */
 
-import { BaseDirectory, exists, mkdir, writeFile, readFile, remove } from "@tauri-apps/plugin-fs";
+import {
+  BaseDirectory,
+  exists,
+  mkdir,
+  writeFile,
+  readFile,
+  remove,
+  rename,
+} from "@tauri-apps/plugin-fs";
 import { join, appCacheDir } from "@tauri-apps/api/path";
 import type { StickerItem } from "@/features/stickers/api/stickersApi";
 import { STARTER_STICKERS } from "../starterStickers";
+import type { StickerProviderId } from "@/features/stickers/types";
 import {
   getCacheCoordinator,
   type ICacheParticipant,
@@ -18,6 +27,8 @@ import {
 
 export interface CachedSticker {
   id: string;
+  itemId?: string;
+  providerId?: StickerProviderId;
   sha256: string;
   localImagePath: string;
   localAnimationPath: string;
@@ -26,6 +37,8 @@ export interface CachedSticker {
   lastAccessedAt: number;
   sizeBytes: number;
   isStarter?: boolean;
+  ownership?: "cache" | "library" | "pinned";
+  pinned?: boolean;
 }
 
 const CACHE_DIR = "clypra_cache/assets/stickers";
@@ -45,6 +58,10 @@ function getFileExtension(url?: string, defaultExt = "png"): string {
   return match ? match[1].toLowerCase() : defaultExt;
 }
 
+function cacheKey(providerId: StickerProviderId, itemId: string): string {
+  return `${providerId}:${itemId}`;
+}
+
 async function sha256Hex(data: Uint8Array): Promise<string> {
   if (typeof crypto !== "undefined" && crypto.subtle) {
     const hash = await crypto.subtle.digest("SHA-256", data);
@@ -57,7 +74,7 @@ async function sha256Hex(data: Uint8Array): Promise<string> {
 
 class StickerCacheManager implements ICacheParticipant {
   public readonly name = "sticker-cache";
-  public readonly tier: CacheTier = "indexeddb";
+  public readonly tier: CacheTier = "disk";
   public readonly lifespan: CacheLifespan = "persistent";
 
   private cacheIndex: Map<string, CachedSticker> = new Map();
@@ -72,17 +89,32 @@ class StickerCacheManager implements ICacheParticipant {
     return bytes;
   }
 
-  public trimTo(_targetBytes: number): number {
-    void this.pruneLruIfNeeded();
-    return 0;
+  public trimTo(targetBytes: number): number {
+    const before = this.getBytesUsed();
+    const candidates = Array.from(this.cacheIndex.entries())
+      .filter(([, item]) => !item.isStarter && !item.pinned && item.ownership !== "library")
+      .sort(([, a], [, b]) => a.lastAccessedAt - b.lastAccessedAt);
+
+    let current = before;
+    for (const [key, item] of candidates) {
+      if (current <= targetBytes) break;
+      this.cacheIndex.delete(key);
+      current -= item.sizeBytes || 0;
+      void this.removeEntryFiles(item);
+    }
+
+    void this.saveIndex();
+    return before - current;
   }
 
   public async clear(): Promise<void> {
-    for (const item of Array.from(this.cacheIndex.values())) {
-      if (!item.isStarter) {
-        await this.clearCache(item.id);
+    for (const [key, item] of Array.from(this.cacheIndex.entries())) {
+      if (!item.isStarter && !item.pinned && item.ownership !== "library") {
+        this.cacheIndex.delete(key);
+        await this.removeEntryFiles(item);
       }
     }
+    await this.saveIndex();
   }
 
   public getMetrics(): { entryCount: number } {
@@ -114,9 +146,12 @@ class StickerCacheManager implements ICacheParticipant {
 
   private async seedStarters(): Promise<void> {
     for (const starter of STARTER_STICKERS) {
-      if (!this.cacheIndex.has(starter.id)) {
-        this.cacheIndex.set(starter.id, {
+      const key = cacheKey("bundled", starter.id);
+      if (!this.cacheIndex.has(key)) {
+        this.cacheIndex.set(key, {
           id: starter.id,
+          itemId: starter.id,
+          providerId: "bundled",
           sha256: `starter-${starter.id}`,
           localImagePath: starter.svgThumbnail,
           localAnimationPath: `bundled://${starter.id}.json`,
@@ -125,6 +160,7 @@ class StickerCacheManager implements ICacheParticipant {
           lastAccessedAt: Date.now(),
           sizeBytes: 2048,
           isStarter: true,
+          ownership: "cache",
         });
       }
     }
@@ -144,7 +180,12 @@ class StickerCacheManager implements ICacheParticipant {
 
         this.cacheIndex.clear();
         for (const item of indexArray) {
-          this.cacheIndex.set(item.id, item);
+          const providerId = item.providerId ?? (item.isStarter ? "bundled" : "catalog");
+          this.cacheIndex.set(cacheKey(providerId, item.itemId ?? item.id), {
+            ...item,
+            itemId: item.itemId ?? item.id,
+            providerId,
+          });
         }
       }
     } catch (error) {
@@ -163,27 +204,52 @@ class StickerCacheManager implements ICacheParticipant {
       const indexJson = JSON.stringify(diskEntries, null, 2);
       const indexData = new TextEncoder().encode(indexJson);
 
-      await writeFile(indexPath, indexData, { baseDir: BaseDirectory.AppCache });
+      await this.writeAtomically(indexPath, indexData);
     } catch (error) {
       console.warn("[StickerCache] Failed to persist index:", error);
     }
   }
 
-  isCached(itemId: string): boolean {
-    return this.cacheIndex.has(itemId);
+  private findEntry(itemId: string, providerId?: StickerProviderId): [string, CachedSticker] | undefined {
+    if (providerId) {
+      const key = cacheKey(providerId, itemId);
+      const direct = this.cacheIndex.get(key);
+      return direct ? [key, direct] : undefined;
+    }
+
+    for (const [key, item] of this.cacheIndex.entries()) {
+      if ((item.itemId ?? item.id) === itemId || item.id === itemId) return [key, item];
+    }
+    return undefined;
   }
 
-  getCached(itemId: string): CachedSticker | null {
-    const entry = this.cacheIndex.get(itemId);
-    if (entry) {
-      entry.lastAccessedAt = Date.now();
-      return entry;
-    }
-    return null;
+  isCached(itemId: string, providerId?: StickerProviderId): boolean {
+    return Boolean(this.findEntry(itemId, providerId));
+  }
+
+  getCached(itemId: string, providerId?: StickerProviderId): CachedSticker | null {
+    const found = this.findEntry(itemId, providerId);
+    if (!found) return null;
+    found[1].lastAccessedAt = Date.now();
+    return found[1];
+  }
+
+  setPinned(itemId: string, pinned: boolean, providerId?: StickerProviderId): boolean {
+    const found = this.findEntry(itemId, providerId);
+    if (!found) return false;
+    found[1].pinned = pinned;
+    found[1].ownership = pinned ? "pinned" : "cache";
+    void this.saveIndex();
+    return true;
   }
 
   async readLottieJson(localPath: string): Promise<object> {
     await this.initialize();
+
+    if (localPath.startsWith("data:application/json,")) {
+      const encoded = localPath.slice("data:application/json,".length);
+      return JSON.parse(decodeURIComponent(encoded));
+    }
 
     // Check bundled starter animation
     if (localPath.startsWith("bundled://")) {
@@ -252,8 +318,26 @@ class StickerCacheManager implements ICacheParticipant {
       );
     }
 
-    await writeFile(relativePath, data, { baseDir: BaseDirectory.AppCache });
+    await this.writeAtomically(relativePath, data);
     return { bytes: data.length, sha256: calculatedSha256 };
+  }
+
+  private async writeAtomically(relativePath: string, data: Uint8Array): Promise<void> {
+    const temporaryPath = `${relativePath}.tmp-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    try {
+      await writeFile(temporaryPath, data, { baseDir: BaseDirectory.AppCache });
+      await rename(temporaryPath, relativePath, {
+        oldPathBaseDir: BaseDirectory.AppCache,
+        newPathBaseDir: BaseDirectory.AppCache,
+      });
+    } catch (error) {
+      try {
+        await remove(temporaryPath, { baseDir: BaseDirectory.AppCache });
+      } catch {
+        // Preserve the original write/rename failure.
+      }
+      throw error;
+    }
   }
 
   async downloadSticker(
@@ -264,10 +348,13 @@ class StickerCacheManager implements ICacheParticipant {
 
     // Check if starter sticker
     const starter = STARTER_STICKERS.find((s) => s.id === item.id);
+    const providerId: StickerProviderId = starter ? "bundled" : "catalog";
     if (starter) {
       onProgress?.(100);
       const cachedStarter: CachedSticker = {
         id: starter.id,
+        itemId: starter.id,
+        providerId,
         sha256: `starter-${starter.id}`,
         localImagePath: starter.svgThumbnail,
         localAnimationPath: `bundled://${starter.id}.json`,
@@ -276,12 +363,13 @@ class StickerCacheManager implements ICacheParticipant {
         lastAccessedAt: Date.now(),
         sizeBytes: 2048,
         isStarter: true,
+        ownership: "cache",
       };
-      this.cacheIndex.set(starter.id, cachedStarter);
+      this.cacheIndex.set(cacheKey(providerId, starter.id), cachedStarter);
       return cachedStarter;
     }
 
-    const existing = this.getCached(item.id);
+    const existing = this.getCached(item.id, providerId);
     if (existing) {
       onProgress?.(100);
       return existing;
@@ -299,7 +387,7 @@ class StickerCacheManager implements ICacheParticipant {
 
       // 1. Download thumbnail
       const imgExt = getFileExtension(thumbUrl, "png");
-      const thumbFileName = `${item.id}_thumb.${imgExt}`;
+      const thumbFileName = `${sanitizeFileName(providerId)}_${sanitizeFileName(item.id)}_thumb.${imgExt}`;
       const relativeThumbPath = `${CACHE_DIR}/${thumbFileName}`;
       if (thumbUrl && !thumbUrl.startsWith("data:")) {
         const thumbResult = await this.downloadAndVerify(thumbUrl, relativeThumbPath);
@@ -310,8 +398,8 @@ class StickerCacheManager implements ICacheParticipant {
       // 2. Download primary animation/image asset
       const assetExt = item.kind === "lottie" ? "json" : getFileExtension(assetUrl, "json");
       const assetFileName = item.sha256
-        ? `${item.sha256}.${assetExt}`
-        : `${item.id}_${sanitizedName}.${assetExt}`;
+        ? `${sanitizeFileName(providerId)}_${item.sha256}.${assetExt}`
+        : `${sanitizeFileName(providerId)}_${item.id}_${sanitizedName}.${assetExt}`;
       const relativeAssetPath = `${CACHE_DIR}/${assetFileName}`;
 
       if (assetUrl) {
@@ -327,15 +415,18 @@ class StickerCacheManager implements ICacheParticipant {
 
       const entry: CachedSticker = {
         id: item.id,
+        itemId: item.id,
+        providerId,
         sha256: primarySha256,
         localImagePath: thumbUrl.startsWith("data:") ? thumbUrl : relativeThumbPath,
         localAnimationPath: relativeAssetPath,
         downloadedAt: Date.now(),
         lastAccessedAt: Date.now(),
         sizeBytes: totalBytes,
+        ownership: "cache",
       };
 
-      this.cacheIndex.set(item.id, entry);
+      this.cacheIndex.set(cacheKey(providerId, item.id), entry);
       await this.pruneLruIfNeeded();
       await this.saveIndex();
 
@@ -351,7 +442,10 @@ class StickerCacheManager implements ICacheParticipant {
     onProgress?: (percentage: number) => void,
   ): Promise<CachedSticker> {
     await this.initialize();
-    const existing = this.getCached(item.id);
+    const providerId: StickerProviderId = STARTER_STICKERS.some((starter) => starter.id === item.id)
+      ? "bundled"
+      : "catalog";
+    const existing = this.getCached(item.id, providerId);
     if (existing) {
       onProgress?.(100);
       return existing;
@@ -364,7 +458,7 @@ class StickerCacheManager implements ICacheParticipant {
     const nonStarters: CachedSticker[] = [];
 
     for (const item of this.cacheIndex.values()) {
-      if (!item.isStarter) {
+      if (!item.isStarter && !item.pinned && item.ownership !== "library") {
         totalBytes += item.sizeBytes || 0;
         nonStarters.push(item);
       }
@@ -378,32 +472,32 @@ class StickerCacheManager implements ICacheParticipant {
     const targetBytes = MAX_CACHE_BYTES * 0.8;
     for (const item of nonStarters) {
       if (totalBytes <= targetBytes) break;
-      await this.clearCache(item.id);
+      await this.clearCache(item.itemId ?? item.id, item.providerId);
       totalBytes -= item.sizeBytes || 0;
     }
   }
 
-  async clearCache(itemId: string): Promise<void> {
+  private async removeEntryFiles(cached: CachedSticker): Promise<void> {
+    if (cached.localImagePath && !cached.localImagePath.startsWith("data:")) {
+      const fileExists = await exists(cached.localImagePath, { baseDir: BaseDirectory.AppCache });
+      if (fileExists) await remove(cached.localImagePath, { baseDir: BaseDirectory.AppCache });
+    }
+
+    if (cached.localAnimationPath && !cached.localAnimationPath.startsWith("bundled://")) {
+      const fileExists = await exists(cached.localAnimationPath, { baseDir: BaseDirectory.AppCache });
+      if (fileExists) await remove(cached.localAnimationPath, { baseDir: BaseDirectory.AppCache });
+    }
+  }
+
+  async clearCache(itemId: string, providerId?: StickerProviderId): Promise<void> {
     await this.initialize();
-    const cached = this.cacheIndex.get(itemId);
+    const found = this.findEntry(itemId, providerId);
+    const cached = found?.[1];
     if (!cached || cached.isStarter) return;
 
     try {
-      if (cached.localImagePath && !cached.localImagePath.startsWith("data:")) {
-        const fileExists = await exists(cached.localImagePath, { baseDir: BaseDirectory.AppCache });
-        if (fileExists) {
-          await remove(cached.localImagePath, { baseDir: BaseDirectory.AppCache });
-        }
-      }
-
-      if (cached.localAnimationPath && !cached.localAnimationPath.startsWith("bundled://")) {
-        const fileExists = await exists(cached.localAnimationPath, { baseDir: BaseDirectory.AppCache });
-        if (fileExists) {
-          await remove(cached.localAnimationPath, { baseDir: BaseDirectory.AppCache });
-        }
-      }
-
-      this.cacheIndex.delete(itemId);
+      await this.removeEntryFiles(cached);
+      this.cacheIndex.delete(found[0]);
       await this.saveIndex();
     } catch (error) {
       console.warn(`[StickerCache] Error clearing cache for ${itemId}:`, error);

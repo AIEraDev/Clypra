@@ -316,6 +316,7 @@ export const createClipFromAsset = ({
       stickerFormat: asset.stickerFormat,
       stickerAnimationPath: asset.stickerAnimationPath,
       stickerSourceId: asset.stickerSourceId,
+      stickerRef: asset.stickerRef,
       ...(isSticker && { stickerImagePath: asset.path }),
     }),
     ...(asset.type === "audio" && { audioPath: audioPath || asset.path }), // Always populate audioPath for audio clips (falls back to asset.path so waveform works even when mediaAsset lookup fails) // Always populate audioPath for audio clips (falls back to asset.path so waveform works even when mediaAsset lookup fails)

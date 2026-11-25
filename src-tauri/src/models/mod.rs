@@ -1,6 +1,27 @@
 pub mod overlay;
 use serde::{Deserialize, Serialize};
 
+/// Persisted sticker provenance shared by the frontend project serializer.
+///
+/// Projects currently store media assets and clips as JSON values so this
+/// model is a schema reference for native consumers while remaining additive
+/// and backward compatible with older project files.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StickerRef {
+    pub provider_id: String,
+    pub item_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub revision_id: Option<String>,
+    pub format: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub license: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shape: Option<serde_json::Value>,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MediaMetadata {
     pub duration: f64,
