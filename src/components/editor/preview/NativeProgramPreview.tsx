@@ -1597,6 +1597,11 @@ export const NativeProgramPreview: React.FC = () => {
         } else if (action === "pause") {
           activeTransportAuthority?.pause();
         }
+        if (clock.state === "playing") {
+          import("@tauri-apps/api/core").then(({ invoke }) => {
+            void invoke("notify_perf_driver_transport_state", { state: clock.state });
+          }).catch(() => {});
+        }
         void emitNativeDiagnostic({
           marker: "perf-driver-transport-received",
           action: action ?? null,
@@ -3107,11 +3112,9 @@ export const NativeProgramPreview: React.FC = () => {
 
     // Matches PrefetchPolicy::playback_window=200ms at 30fps.
     const LOOKAHEAD_PRIME_FRAMES = 6;
-    // Keep the frontend primer from fan-out submitting six independent decode
-    // requests at once. Rust owns the continuous lookahead worker; the
-    // frontend primer only needs a small startup cushion and must not compete
-    // with a visible frame or an upcoming clip-boundary decode.
-    const MAX_CONCURRENT_LOOKAHEAD_PRIME_REQUESTS = 2;
+    // Keep the frontend primer from fan-out submitting excessive decode
+    // requests at once. Priming 6 frames ensures full initial lookahead depth.
+    const MAX_CONCURRENT_LOOKAHEAD_PRIME_REQUESTS = 6;
 
     /**
      * Cold-start lookahead primer (Bug 13 fix).

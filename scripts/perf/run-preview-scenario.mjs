@@ -183,14 +183,28 @@ export async function validateProjectMediaInputs(mediaPath, projectPath) {
       (clip.kind === "video" || clip.kind === "image" || clip.kind === "audio") &&
       (matchingAssetIds.has(clip.mediaId) || matchingAssetIds.has(clip.assetId) || matchingAssetIds.has(clip.media_id)),
   );
-  const hasTextClip = clips.some(
-    (clip) => clip.kind === "text" || clip.kind === "text-template" || clip.kind === "text-effect",
-  );
+  const textEffects = Array.isArray(project.text_effects)
+    ? project.text_effects
+    : Array.isArray(project.textEffects)
+      ? project.textEffects
+      : [];
+  const textTemplates = Array.isArray(project.text_templates)
+    ? project.text_templates
+    : Array.isArray(project.textTemplates)
+      ? project.textTemplates
+      : [];
+  const hasTextClip =
+    clips.some(
+      (clip) => clip.kind === "text" || clip.kind === "text-template" || clip.kind === "text-effect",
+    ) ||
+    textEffects.length > 0 ||
+    textTemplates.length > 0;
   if (!matchingMediaClip && !hasTextClip) {
     throw new Error("project has no clip referencing the supplied --media file");
   }
 
-  const computedDuration = clips.reduce((end, clip) => {
+  const timelineItems = [...clips, ...textEffects, ...textTemplates];
+  const computedDuration = timelineItems.reduce((end, clip) => {
     const start = Number(clip.startTime ?? clip.start_time ?? 0);
     const duration = Number(clip.duration ?? 0);
     return Number.isFinite(start) && Number.isFinite(duration)

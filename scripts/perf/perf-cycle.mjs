@@ -366,7 +366,8 @@ export async function runSingleScenarioIteration(spec, binaryPath, isolatedDataD
   }).filter(Boolean);
 
   const lintResult = lintRecords(records);
-  const evalResult = await evaluateSession(sessionPath);
+  const requireLookahead = !["project-text", "project-text-effect", "project-text-template", "project-image", "project-audio"].includes(spec.name ?? spec.scenario);
+  const evalResult = await evaluateSession(sessionPath, { requireLookahead });
 
   const pass = exitCode === 0 && evalResult.allPassed && lintResult.trusted;
   try {

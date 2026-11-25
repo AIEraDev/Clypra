@@ -269,3 +269,11 @@ pub(super) async fn get_audio_duration(path: &str) -> Result<f64, String> {
     );
     Ok(duration)
 }
+
+/// Natively checks whether a media file exists on disk.
+/// Bypasses webview plugin-fs permission scope restrictions.
+#[tauri::command]
+pub fn check_file_exists(path: String) -> bool {
+    let normalized = normalize_file_path(&path);
+    std::path::Path::new(&normalized).exists()
+}

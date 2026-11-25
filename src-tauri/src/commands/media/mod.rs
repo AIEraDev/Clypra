@@ -15,8 +15,8 @@ pub use asset::{
 pub use path::normalize_file_path;
 #[allow(deprecated)]
 pub use probe::{
-    decode_image_rgba, decode_image_rgba_bytes, get_media_metadata, get_video_metadata,
-    get_video_render_metadata,
+    check_file_exists, decode_image_rgba, decode_image_rgba_bytes, get_media_metadata,
+    get_video_metadata, get_video_render_metadata,
 };
 pub use transcribe::transcribe_audio_local;
 pub use waveform::{extract_waveform_data, WaveformBucket};

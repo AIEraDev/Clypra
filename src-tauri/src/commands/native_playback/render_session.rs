@@ -42,6 +42,7 @@ pub(crate) struct NativeRenderSession {
     pub(crate) last_interactive_preempt_epoch: AtomicU64,
     pub(crate) worker: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pub(crate) configured_at: Instant,
+    pub(crate) started_at: Mutex<Option<Instant>>,
     pub(crate) ready_after_us: AtomicU64,
     pub(crate) first_presented: AtomicBool,
     /// Playback lookahead may need a more conservative scale than the
@@ -648,6 +649,7 @@ impl NativeRenderSession {
             last_interactive_preempt_epoch: AtomicU64::new(u64::MAX),
             worker: Mutex::new(None),
             configured_at,
+            started_at: Mutex::new(None),
             ready_after_us: AtomicU64::new(0),
             first_presented: AtomicBool::new(false),
             playback_quality: AtomicU8::new(quality_to_code(initial_playback_quality)),
@@ -851,6 +853,9 @@ impl NativeRenderSession {
     }
 
     pub(crate) fn start(self: &Arc<Self>, app: AppHandle) {
+        if let Ok(mut started_at) = self.started_at.lock() {
+            *started_at = Some(Instant::now());
+        }
         // Do not carry missed-deadline history from a stopped/paused audio
         // clock into a new playback epoch.
         self.reset_playback_lookahead_feedback();
@@ -1879,14 +1884,19 @@ impl NativeRenderSession {
                 if presentation.presented {
                     if !self.first_presented.swap(true, Ordering::AcqRel) {
                         crate::cold_start::record_first_frame();
-                        let elapsed_us = self
-                            .configured_at
+                        let start_anchor = self
+                            .started_at
+                            .lock()
+                            .ok()
+                            .and_then(|guard| *guard)
+                            .unwrap_or(self.configured_at);
+                        let elapsed_us = start_anchor
                             .elapsed()
                             .as_micros()
                             .min(u64::MAX as u128) as u64;
                         crate::cold_start::record_span(
                             "c4_first_frame",
-                            self.configured_at,
+                            start_anchor,
                             elapsed_us,
                             false,
                         );
@@ -2058,6 +2068,7 @@ mod tests {
             last_interactive_preempt_epoch: AtomicU64::new(u64::MAX),
             worker: Mutex::new(None),
             configured_at: Instant::now(),
+            started_at: Mutex::new(None),
             ready_after_us: AtomicU64::new(0),
             first_presented: AtomicBool::new(false),
             playback_quality: AtomicU8::new(0),

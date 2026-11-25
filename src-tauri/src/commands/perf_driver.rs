@@ -10,7 +10,9 @@ use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 #[cfg(feature = "perf-driver")]
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Emitter, Manager};
+#[cfg(feature = "perf-driver")]
+use tauri::Manager;
+use tauri::{AppHandle, Emitter};
 
 fn is_false(value: &bool) -> bool {
     !*value
@@ -18,7 +20,14 @@ fn is_false(value: &bool) -> bool {
 
 static ACTIVE_PHASE_ID: std::sync::OnceLock<std::sync::Mutex<Option<String>>> =
     std::sync::OnceLock::new();
+static TRANSPORT_PLAYING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 const STARTUP_PHASE_DURATION_MS: u64 = 2_000;
+
+#[tauri::command]
+pub fn notify_perf_driver_transport_state(state: String) {
+    TRANSPORT_PLAYING.store(state == "playing", std::sync::atomic::Ordering::Release);
+}
 
 pub(crate) fn active_phase_id() -> Option<String> {
     ACTIVE_PHASE_ID
@@ -264,6 +273,27 @@ async fn wait_for_audio_clock_start(app: &AppHandle) -> Result<(i64, u32), Strin
                     return Ok((clock.ticks, attempts));
                 }
             }
+        }
+        let is_runtime_playing = if let Some(runtime_state) =
+            app.try_state::<std::sync::Arc<std::sync::Mutex<crate::commands::native_playback::NativePlaybackRuntime>>>()
+        {
+            if let Ok(mut runtime) = runtime_state.lock() {
+                if let Ok(state) = runtime.state() {
+                    state.clock_status != crate::native_core::contracts::PlaybackClockStatus::Stopped
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+        if is_runtime_playing {
+            return Ok((0, attempts));
+        }
+        if TRANSPORT_PLAYING.load(std::sync::atomic::Ordering::Acquire) {
+            return Ok((0, attempts));
         }
         attempts += 1;
         let _ = app.emit(

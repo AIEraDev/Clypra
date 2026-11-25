@@ -3728,9 +3728,16 @@ pub(crate) fn schedule_lookahead_predecode(
         }
 
         if let LookaheadWorkerAction::Keep { .. } = decision {
+            let target_horizon = current_audio_frame.saturating_add(lookahead_count as u64);
+            if target_horizon > end_f {
+                active
+                    .end_frame
+                    .store(target_horizon, std::sync::atomic::Ordering::Release);
+            }
             // PR4: count dropped trigger and record ahead-of-clock
             crate::filmstrip_engine::stream_actor::record_lookahead_trigger_dropped();
-            let end_time_secs = end_f as f64 / fps;
+            let current_end_f = active.end_frame.load(std::sync::atomic::Ordering::Acquire);
+            let end_time_secs = current_end_f as f64 / fps;
             let ahead_ms = (end_time_secs - current_audio_secs) * 1_000.0;
             crate::filmstrip_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
             return;
@@ -3824,7 +3831,8 @@ pub(crate) fn schedule_lookahead_predecode(
             return;
         }
 
-        for target_frame_index in start_frame_index..=target_end_frame_index {
+        let mut target_frame_index = start_frame_index;
+        while target_frame_index <= worker_end_clone.load(std::sync::atomic::Ordering::Acquire) {
             // Check generation currency before each frame
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
             {
@@ -3845,6 +3853,7 @@ pub(crate) fn schedule_lookahead_predecode(
                     * fps)
                     .round() as u64;
                 if target_frame_index < live_frame {
+                    target_frame_index = live_frame;
                     continue;
                 }
             }
@@ -3882,6 +3891,7 @@ pub(crate) fn schedule_lookahead_predecode(
                 {
                     let queue_state = queue.lock().await;
                     if queue_state.contains(&key) {
+                        target_frame_index += 1;
                         continue;
                     }
                 }
@@ -3903,6 +3913,7 @@ pub(crate) fn schedule_lookahead_predecode(
                 crate::native_core::performance::now_ms(),
                 Ordering::Release,
             );
+            target_frame_index += 1;
         }
         worker_finished.store(true, std::sync::atomic::Ordering::Release);
     });

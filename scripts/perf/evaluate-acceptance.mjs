@@ -23,7 +23,8 @@ function valueAfter(args, flag, fallback = null) {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 }
 
-export async function evaluateSession(filePath) {
+export async function evaluateSession(filePath, options = {}) {
+  const { requireLookahead = true } = options;
   const rawContent = await readFile(filePath, "utf8");
   const lines = rawContent.split(/\r?\n/).filter(Boolean);
   const records = [];
@@ -271,11 +272,17 @@ export async function evaluateSession(filePath) {
     },
     c4_startupPhaseIsolated: {
       description: "Startup phase isolated and time to first frame <= 1000ms",
-      target: "startup phase exists & TTFF <= 1000ms",
-      actual: phaseStats["startup"]
-        ? `startup duration=${phaseStats["startup"].durationMs}ms, TTFF=${timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "missing"}`
-        : "no startup phase",
-      pass: Boolean(phaseStats["startup"]) && timeToFirstFrameMs !== null && timeToFirstFrameMs <= 1000,
+      target: !requireLookahead
+        ? "n/a (non-video scenario)"
+        : "startup phase exists & TTFF <= 1000ms",
+      actual: !requireLookahead
+        ? "n/a"
+        : phaseStats["startup"]
+          ? `startup duration=${phaseStats["startup"].durationMs}ms, TTFF=${timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "missing"}`
+          : "no startup phase",
+      pass: !requireLookahead
+        ? true
+        : Boolean(phaseStats["startup"]) && timeToFirstFrameMs !== null && timeToFirstFrameMs <= 1000,
     },
     c5_steadyPlaybackPresented: {
       description: "Steady playback phase presented >= 95% with valid frame count",
@@ -333,21 +340,35 @@ export async function evaluateSession(filePath) {
     },
     c13_timeToFirstFrame: {
       description: "Time to first frame presented <= 1000ms",
-      target: "<= 1000ms (data required)",
-      actual: timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "missing (first frame presented marker not found)",
-      pass: timeToFirstFrameMs !== null && timeToFirstFrameMs <= 1000,
+      target: !requireLookahead
+        ? "n/a (non-video scenario)"
+        : "<= 1000ms (data required)",
+      actual: !requireLookahead
+        ? "n/a"
+        : timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "missing (first frame presented marker not found)",
+      pass: !requireLookahead
+        ? true
+        : timeToFirstFrameMs !== null && timeToFirstFrameMs <= 1000,
     },
     c14_lookaheadDepthSteady: {
       description: "Minimum lookahead depth in steady playback >= 2 frames",
-      target: hasSteadyPhase ? "min >= 2 frames (data required)" : "n/a (no steady phase)",
-      actual: hasSteadyPhase
-        ? (lookaheadDataMissing
-            ? "lookahead data missing (0 samples)"
-            : `min=${minLookaheadDepth}, avg=${avgLookaheadDepth.toFixed(2)}, samples=${lookaheadDepths.length}`)
-        : "n/a",
-      pass: hasSteadyPhase
-        ? (!lookaheadDataMissing && minLookaheadDepth >= 2)
-        : true,
+      target: !requireLookahead
+        ? "n/a (non-video scenario)"
+        : hasSteadyPhase
+          ? "min >= 2 frames (data required)"
+          : "n/a (no steady phase)",
+      actual: !requireLookahead
+        ? "n/a"
+        : hasSteadyPhase
+          ? (lookaheadDataMissing
+              ? "lookahead data missing (0 samples)"
+              : `min=${minLookaheadDepth}, avg=${avgLookaheadDepth.toFixed(2)}, samples=${lookaheadDepths.length}`)
+          : "n/a",
+      pass: !requireLookahead
+        ? true
+        : hasSteadyPhase
+          ? (!lookaheadDataMissing && minLookaheadDepth >= 2)
+          : true,
     },
   };
 
