@@ -85,6 +85,7 @@ import {
 import { traceAudioEvent } from "@/core/playback/audioTrace"; // INVESTIGATION ONLY — remove before Phase 6
 import {
   nativePerfCollector,
+  setNativePerfPhaseId,
   type NativePerfSpan,
 } from "@/core/playback/nativePerfTelemetry";
 import type { SeekIntent } from "@/core/playback/seekController";
@@ -110,6 +111,8 @@ import {
   queueNativeFrame,
   listenForNativePlaybackStats,
   listenForNativePlaybackProgress,
+  listenForPerfDriverTransport,
+  listenForPerfDriverProbe,
   emitNativeDiagnostic,
   getRuntimeFlagProfile,
   listenForNativeDiagnostics,
@@ -658,6 +661,11 @@ export const NativeProgramPreview: React.FC = () => {
     let mounted = true;
     let unlisten: (() => void) | undefined;
     void listenForNativeDiagnostics((diagnostic) => {
+      if (diagnostic.marker === "perf-phase") {
+        setNativePerfPhaseId(
+          diagnostic.phaseEvent === "start" ? diagnostic.phaseId ?? null : null,
+        );
+      }
       if (
         mounted &&
         diagnostic.source === "native-preview" &&
@@ -1522,6 +1530,8 @@ export const NativeProgramPreview: React.FC = () => {
     let unlistenStartupMilestone: (() => void) | null = null;
     let unlistenPlaybackStats: (() => void) | null = null;
     let unlistenPlaybackProgress: (() => void) | null = null;
+    let unlistenPerfDriverTransport: (() => void) | null = null;
+    let unlistenPerfDriverProbe: (() => void) | null = null;
     let unlistenDemandPresentation: (() => void) | null = null;
     let unlistenDemandTerminal: (() => void) | null = null;
     let lastNativePlaybackRequestKey = "";
@@ -1576,6 +1586,60 @@ export const NativeProgramPreview: React.FC = () => {
       }).then((fn) => {
         if (!isActive) fn();
         else unlistenPlaybackProgress = fn;
+      });
+      void listenForPerfDriverTransport(({ action }) => {
+        const wasPlaying = clock.state === "playing";
+        const activeTransportAuthority =
+          getActiveSessionOrNull()?.transportAuthority ?? null;
+        if (action === "play") {
+          activeTransportAuthority?.setActiveContext("program");
+          activeTransportAuthority?.play();
+        } else if (action === "pause") {
+          activeTransportAuthority?.pause();
+        }
+        if (clock.state === "playing") {
+          import("@tauri-apps/api/core").then(({ invoke }) => {
+            void invoke("notify_perf_driver_transport_state", { state: clock.state });
+          }).catch(() => {});
+        }
+        void emitNativeDiagnostic({
+          marker: "perf-driver-transport-received",
+          action: action ?? null,
+          transportEntry: "ProjectSession.transportAuthority",
+          transportAuthorityAvailable: activeTransportAuthority !== null,
+          wasPlaying,
+          playbackState: clock.state,
+          playbackTimeSeconds: clock.time,
+          playbackDurationSeconds: clock.duration,
+          transportTimeSeconds: activeTransportAuthority?.getTime() ?? null,
+          transportDurationSeconds: activeTransportAuthority?.getDuration() ?? null,
+        });
+      }).then((fn) => {
+        if (!isActive) fn();
+        else unlistenPerfDriverTransport = fn;
+      });
+      void listenForPerfDriverProbe(({ probeId, durationMs = 1_000 }) => {
+        const startedAt = performance.now();
+        let rafCount = 0;
+        const sample = (now: number) => {
+          rafCount += 1;
+          if (now - startedAt < durationMs) {
+            window.requestAnimationFrame(sample);
+            return;
+          }
+          void emitNativeDiagnostic({
+            marker: "perf-driver-visibility",
+            probeId: probeId ?? null,
+            documentVisibilityState: document.visibilityState,
+            documentHasFocus: document.hasFocus(),
+            rafCount,
+            elapsedMs: Number((now - startedAt).toFixed(2)),
+          });
+        };
+        window.requestAnimationFrame(sample);
+      }).then((fn) => {
+        if (!isActive) fn();
+        else unlistenPerfDriverProbe = fn;
       });
     }
     const nativeEditorOverlayManager = new NativeEditorOverlayManager();
@@ -2698,6 +2762,10 @@ export const NativeProgramPreview: React.FC = () => {
         .then(() => {
           nativePlaybackRenderSnapshotKey = key;
           nativePlaybackRenderFailed = false;
+          void emitNativeDiagnostic({
+            marker: "persistent-render-session-succeeded",
+            key,
+          });
         })
         .catch((error) => {
           if (isLiveUpdate) {
@@ -2705,9 +2773,18 @@ export const NativeProgramPreview: React.FC = () => {
             return configureNativePlaybackRender(request).then(() => {
               nativePlaybackRenderSnapshotKey = key;
               nativePlaybackRenderFailed = false;
+              void emitNativeDiagnostic({
+                marker: "persistent-render-session-succeeded-fallback",
+                key,
+              });
             });
           }
           nativePlaybackRenderFailed = true;
+          void emitNativeDiagnostic({
+            marker: "persistent-render-session-failed",
+            key,
+            error: error instanceof Error ? error.message : String(error),
+          });
           console.warn("[native-preview] persistent-render-session-failed", {
             error: error instanceof Error ? error.message : String(error),
           });
@@ -3035,11 +3112,9 @@ export const NativeProgramPreview: React.FC = () => {
 
     // Matches PrefetchPolicy::playback_window=200ms at 30fps.
     const LOOKAHEAD_PRIME_FRAMES = 6;
-    // Keep the frontend primer from fan-out submitting six independent decode
-    // requests at once. Rust owns the continuous lookahead worker; the
-    // frontend primer only needs a small startup cushion and must not compete
-    // with a visible frame or an upcoming clip-boundary decode.
-    const MAX_CONCURRENT_LOOKAHEAD_PRIME_REQUESTS = 2;
+    // Keep the frontend primer from fan-out submitting excessive decode
+    // requests at once. Priming 6 frames ensures full initial lookahead depth.
+    const MAX_CONCURRENT_LOOKAHEAD_PRIME_REQUESTS = 6;
 
     /**
      * Cold-start lookahead primer (Bug 13 fix).
@@ -4165,10 +4240,24 @@ export const NativeProgramPreview: React.FC = () => {
           nativeRequest !== null &&
           nativeRequest.project.videoLayers.length > 0
         ) {
-          // Check that the next line wouldn't duplicate this call — it won't
-          // because the outer gate (nativeDirectSurfacePath || nativeReadbackFallbackPath)
-          // may be false when persistentNativePausedEligible is not yet satisfied.
+          void emitNativeDiagnostic({
+            marker: "eager-render-snapshot-called",
+            videoLayers: nativeRequest.project.videoLayers.length,
+          });
           ensureNativePlaybackRenderSnapshot(nativeRequest);
+        } else if (
+          !isPlaying &&
+          nativePlaybackRenderSnapshotKey === "" &&
+          nativePlaybackRenderSnapshotInFlight === null
+        ) {
+          void emitNativeDiagnostic({
+            marker: "eager-render-snapshot-skipped",
+            nativeSurfaceUsable,
+            qualificationForcesWebView,
+            hasNativeRequest: nativeRequest !== null,
+            videoLayerCount: nativeRequest?.project?.videoLayers?.length ?? 0,
+            nativeBlockers,
+          });
         }
         const nativeSurfaceNeedsHide =
           nativeSurfaceShown &&
@@ -5854,6 +5943,8 @@ export const NativeProgramPreview: React.FC = () => {
       unlistenStartupMilestone?.();
       unlistenPlaybackStats?.();
       unlistenPlaybackProgress?.();
+      unlistenPerfDriverTransport?.();
+      unlistenPerfDriverProbe?.();
       unlistenDemandPresentation?.();
       unlistenDemandTerminal?.();
     };

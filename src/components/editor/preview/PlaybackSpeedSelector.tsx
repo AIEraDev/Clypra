@@ -41,7 +41,7 @@ export const PlaybackSpeedSelector: React.FC<PlaybackSpeedSelectorProps> = ({
       </button>
       {speedMenuOpen && (
         <div
-          className="absolute bottom-full left-0 z-50 mb-1.5 w-[140px] overflow-hidden rounded-xl border border-border bg-surface-floating/95 backdrop-blur-xl py-1 text-text-primary shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+          className="absolute bottom-full left-0 z-50 mb-1.5 w-35 overflow-hidden rounded-xl border border-border bg-surface-floating/95 backdrop-blur-xl py-1 text-text-primary shadow-2xl animate-in fade-in zoom-in-95 duration-100"
           role="listbox"
         >
           <div className="px-1 space-y-0.5">

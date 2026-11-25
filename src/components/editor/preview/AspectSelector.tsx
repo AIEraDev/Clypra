@@ -84,7 +84,7 @@ export const AspectSelector: React.FC<AspectSelectorProps> = ({
       </button>
       {aspectMenuOpen && (
         <div
-          className="absolute bottom-full right-0 z-50 mb-1.5 w-[200px] overflow-hidden rounded-xl border border-border bg-surface-floating/95 backdrop-blur-xl py-1 text-text-primary shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+          className="absolute bottom-full right-0 z-50 mb-1.5 w-50 overflow-hidden rounded-xl border border-border bg-surface-floating/95 backdrop-blur-xl py-1 text-text-primary shadow-2xl animate-in fade-in zoom-in-95 duration-100"
           role="listbox"
         >
           <div className="px-1">

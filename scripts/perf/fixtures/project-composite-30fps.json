@@ -1,0 +1,168 @@
+{
+  "id": "project-composite-30fps",
+  "name": "Composite Multi-Media Interaction (30fps)",
+  "created_at": 1700000000000,
+  "modified_at": 1700000000000,
+  "aspect_ratio": "16:9",
+  "canvas_width": 1920,
+  "canvas_height": 1080,
+  "frame_rate": 30,
+  "duration": 35,
+  "timeline_schema_version": 1,
+  "audio_model_version": 1,
+  "caption_model_version": 2,
+  "caption_tracks": [],
+  "transcripts": {},
+  "transitions": [],
+  "gaps": [],
+  "markers": [],
+  "main_video_track_id": "track-v1",
+  "media_assets": [
+    {
+      "id": "asset-video-aroll",
+      "name": "clip_1080p30_gop1s.mp4",
+      "path": "tests/fixtures/perf/clip_1080p30_gop1s.mp4",
+      "type": "video",
+      "duration": 35,
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "id": "asset-video-broll",
+      "name": "sync_test.mp4",
+      "path": "tests/fixtures/perf/sync_test.mp4",
+      "type": "video",
+      "duration": 35,
+      "width": 1280,
+      "height": 720
+    },
+    {
+      "id": "asset-image-logo",
+      "name": "image_corner_markers_1080p.png",
+      "path": "tests/fixtures/perf/image_corner_markers_1080p.png",
+      "type": "image",
+      "duration": 35,
+      "width": 1920,
+      "height": 1080
+    },
+    {
+      "id": "asset-audio-bed",
+      "name": "audio_beeps_48k_35s.m4a",
+      "path": "tests/fixtures/perf/audio_beeps_48k_35s.m4a",
+      "type": "audio",
+      "duration": 35,
+      "width": 0,
+      "height": 0
+    }
+  ],
+  "tracks": [
+    {
+      "id": "track-v1-aroll",
+      "type": "video",
+      "name": "Primary Video A-Roll",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 80
+    },
+    {
+      "id": "track-v2-broll",
+      "type": "video",
+      "name": "Overlay B-Roll PIP",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 60
+    },
+    {
+      "id": "track-v3-image",
+      "type": "video",
+      "name": "Corner Graphics",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 50
+    },
+    {
+      "id": "track-a1-audio",
+      "type": "audio",
+      "name": "Audio Bed",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 48,
+      "volume": 0.9
+    },
+    {
+      "id": "track-t1-titles",
+      "type": "text",
+      "name": "Text Overlay",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 44
+    }
+  ],
+  "clips": [
+    {
+      "id": "clip-v1",
+      "kind": "video",
+      "trackId": "track-v1-aroll",
+      "mediaId": "asset-video-aroll",
+      "name": "A-Roll Clip",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 0,
+      "trimOut": 35
+    },
+    {
+      "id": "clip-v2",
+      "kind": "video",
+      "trackId": "track-v2-broll",
+      "mediaId": "asset-video-broll",
+      "name": "B-Roll PIP Clip",
+      "startTime": 2,
+      "duration": 31,
+      "trimIn": 0,
+      "trimOut": 31
+    },
+    {
+      "id": "clip-v3",
+      "kind": "image",
+      "trackId": "track-v3-image",
+      "mediaId": "asset-image-logo",
+      "name": "Corner Image",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 0,
+      "trimOut": 35
+    },
+    {
+      "id": "clip-a1",
+      "kind": "audio",
+      "trackId": "track-a1-audio",
+      "mediaId": "asset-audio-bed",
+      "name": "Periodic Beeps Track",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 0,
+      "trimOut": 35
+    }
+  ],
+  "text_effects": [
+    {
+      "id": "fx-composite-1",
+      "trackId": "track-t1-titles",
+      "text": "Composite Multi-Layer 30fps",
+      "startTime": 1,
+      "duration": 33,
+      "style": {
+        "fontSize": 44,
+        "fontFamily": "sans-serif",
+        "color": "#00FFCC",
+        "textAlign": "center"
+      }
+    }
+  ],
+  "text_templates": []
+}

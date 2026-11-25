@@ -250,7 +250,16 @@ fn set_menu_language(app: tauri::AppHandle, language: String) -> Result<(), Stri
 
 #[tauri::command]
 fn exit_app(app: tauri::AppHandle, code: Option<i32>) -> Result<(), String> {
-    if !cold_start::is_bench_mode_active() {
+    #[cfg(feature = "perf-driver")]
+    let perf_driver_active = true;
+    #[cfg(not(feature = "perf-driver"))]
+    let perf_driver_active = false;
+
+    if !cold_start::is_bench_mode_active()
+        && !perf_driver_active
+        && std::env::var("CLYPRA_SCENARIO_HASH").is_err()
+        && std::env::var("CLYPRA_PERF_DRIVER_TOKEN").is_err()
+    {
         return Err("exit_app is only permitted when running in benchmark mode".to_string());
     }
     let exit_code = code.unwrap_or(0);
@@ -650,6 +659,8 @@ pub fn run() {
             clear_thumbnail_cache,
             extract_poster_frame_command,
             get_media_metadata,
+            check_file_exists,
+            commands::perf_driver::notify_perf_driver_transport_state,
             decode_image_rgba,
             get_video_render_metadata,
             #[allow(deprecated)]
@@ -903,7 +914,7 @@ pub fn run() {
         .expect("error while building tauri application");
     crate::cold_start::record_span("c0_app_build", build_start, 0, false);
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, feature = "perf-driver"))]
     crate::commands::debug::start_debug_ipc_server(app.handle().clone());
 
     let run_start = std::time::Instant::now();

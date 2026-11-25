@@ -17,8 +17,10 @@ import {
   claimNativeSurfaceReadiness,
   configureNativeSurface,
   failNativeSurfaceReadiness,
+  isNativeSurfaceConfigured,
   isNativeSurfaceRequestSuperseded,
   markNativeSurfaceReady,
+  onNativeSurfaceCoordinatorReset,
   releaseNativeSurface,
   releaseNativeSurfaceReadiness,
 } from "@/core/runtime/nativeSurfaceLifecycle";
@@ -203,7 +205,11 @@ export function useNativeSurfaceController({
             const geometry = await getNativePreviewSurfaceGeometry(currentTarget);
             if (!active) break;
             const nextGeometryKey = geometryKey(geometry);
-            if (nextGeometryKey === appliedGeometryKey && configuredRef.current) {
+            if (
+              nextGeometryKey === appliedGeometryKey &&
+              configuredRef.current &&
+              isNativeSurfaceConfigured()
+            ) {
               continue;
             }
             phase = "configure";
@@ -297,9 +303,17 @@ export function useNativeSurfaceController({
     const unsubscribeLifecycle = appLifecycleCoordinator.onForegroundWakeup(() => {
       if (active) requestSync(true);
     });
+    const unsubscribeCoordinatorReset = onNativeSurfaceCoordinatorReset(() => {
+      configuredRef.current = false;
+      appliedGeometryKey = "";
+      if (active) {
+        requestSync(true);
+      }
+    });
 
     return () => {
       active = false;
+      unsubscribeCoordinatorReset();
       unsubscribeLifecycle();
       if (debounceTimer) clearTimeout(debounceTimer);
       unsubscribeClockSync();

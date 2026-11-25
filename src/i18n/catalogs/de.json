@@ -676,5 +676,22 @@
   "preview.devDefaults": "Entwicklungsstandards: Trace={{trace}} · Zero-Copy={{zeroCopy}} · Decode={{decodePath}}",
   "preview.zeroCopyViolation": "Zero-Copy-Assertion: {{count}} Vorfall/Vorfälle",
   "common.status.on": "Ein",
-  "common.status.off": "Aus"
+  "common.status.off": "Aus",
+  "aiPlan.title": "KI-Bearbeitungsplan prüfen",
+  "aiPlan.summary": "{{cuts}} Schnitte · {{before}} → {{after}}",
+  "aiPlan.durationBefore": "Vorher: {{duration}}",
+  "aiPlan.durationAfter": "Nachher: {{duration}}",
+  "aiPlan.staleBanner": "Die Zeitleiste wurde geändert, seit dieser Plan erstellt wurde.",
+  "aiPlan.rerun": "Zeitleiste geändert, neu ausführen",
+  "aiPlan.approve": "Anwenden",
+  "aiPlan.reject": "Verwerfen",
+  "aiPlan.keep": "Behalten",
+  "aiPlan.undo": "Rückgängig",
+  "aiPlan.appliedBanner": "Plan angewendet ({{count}} Bearbeitungen).",
+  "aiPlan.op.deleteRange": "Bereich entfernen",
+  "aiPlan.op.split": "Clip teilen",
+  "aiPlan.op.trim": "Clip trimmen",
+  "aiPlan.op.addText": "Text hinzufügen",
+  "aiPlan.toggleOp": "Bearbeitung {{index}} umschalten",
+  "aiPlan.markersCount": "{{count}} Zeitleisten-Markierungen"
 }

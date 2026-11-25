@@ -544,6 +544,7 @@ export interface NativeSurfacePresentation {
   contractVersion: number;
   requestId: string;
   frameIndex: number;
+  phaseId?: string | null;
   presented: boolean;
   dropped: boolean;
   audioPositionTicks: number;
@@ -607,6 +608,7 @@ export interface NativePlaybackDemandTerminal {
   generation?: number;
   cancellationEpoch: number;
   frameIndex: number;
+  phaseId?: string | null;
   disposition:
     | "presented"
     | "coalesced"
@@ -1168,13 +1170,13 @@ export function createNativePlaybackFrameDemand(
     videoLayers: request.project.videoLayers.map((layer) => ({
       layerId: layer.layerId,
       sourceTime: layer.sourceTime,
-      x: layer.x,
-      y: layer.y,
-      width: layer.width,
-      height: layer.height,
-      rotation: layer.rotation,
-      opacity: layer.opacity,
-      zIndex: layer.zIndex,
+      x: Number.isFinite(layer.x) ? layer.x : 0,
+      y: Number.isFinite(layer.y) ? layer.y : 0,
+      width: Number.isFinite(layer.width) && (layer.width ?? 0) > 0 ? layer.width : request.project.canvasWidth,
+      height: Number.isFinite(layer.height) && (layer.height ?? 0) > 0 ? layer.height : request.project.canvasHeight,
+      rotation: Number.isFinite(layer.rotation) ? layer.rotation : 0,
+      opacity: Number.isFinite(layer.opacity) ? layer.opacity : 1,
+      zIndex: Number.isFinite(layer.zIndex) ? layer.zIndex : 0,
       colorGrade: layer.colorGrade,
       bodyEffect: layer.bodyEffect,
     })),
@@ -1185,8 +1187,8 @@ export function createNativePlaybackFrameDemand(
       height: layer.height,
       displayWidth: layer.displayWidth,
       displayHeight: layer.displayHeight,
-      x: layer.x,
-      y: layer.y,
+      x: Number.isFinite(layer.x) ? layer.x : 0,
+      y: Number.isFinite(layer.y) ? layer.y : 0,
       rotation: layer.rotation ?? 0,
       opacity: layer.opacity ?? 1,
       zIndex: layer.zIndex ?? 0,
@@ -1195,8 +1197,8 @@ export function createNativePlaybackFrameDemand(
     })),
     textLayers: (request.project.textLayers ?? []).map((layer) => ({
       layerId: layer.layerId,
-      x: layer.x,
-      y: layer.y,
+      x: Number.isFinite(layer.x) ? layer.x : 0,
+      y: Number.isFinite(layer.y) ? layer.y : 0,
       rotation: layer.rotation ?? 0,
       opacity: layer.opacity ?? 1,
       zIndex: layer.zIndex ?? 0,

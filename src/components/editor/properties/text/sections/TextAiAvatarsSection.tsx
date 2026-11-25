@@ -89,7 +89,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
   return (
     <div className="space-y-4 p-1 select-none">
       {/* Pro Banner */}
-      <div className="p-3 bg-gradient-to-r from-purple-900/40 via-indigo-900/30 to-purple-900/40 border border-purple-500/30 rounded-xl relative overflow-hidden">
+      <div className="p-3 bg-linear-to-r from-purple-900/40 via-indigo-900/30 to-purple-900/40 border border-purple-500/30 rounded-xl relative overflow-hidden">
         <div className="flex items-center gap-2">
           <span className="text-purple-400 text-sm">◆</span>
           <span className="text-xs font-bold text-text-primary uppercase tracking-wider">
@@ -130,7 +130,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
                   </div>
                 )}
                 <div
-                  className={`w-12 h-12 rounded-full bg-gradient-to-tr ${avatar.bgColor} flex items-center justify-center text-white mb-2 shadow-md`}
+                  className={`w-12 h-12 rounded-full bg-linear-to-tr ${avatar.bgColor} flex items-center justify-center text-white mb-2 shadow-md`}
                 >
                   <User className="w-6 h-6 opacity-90" />
                 </div>
@@ -225,7 +225,7 @@ export const TextAiAvatarsSection: React.FC<TextAiAvatarsSectionProps> = ({
           type="button"
           onClick={handleGenerate}
           disabled={isGenerating}
-          className="w-full py-2.5 px-4 rounded-lg bg-gradient-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 disabled:opacity-60 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-purple-500/25"
+          className="w-full py-2.5 px-4 rounded-lg bg-linear-to-r from-purple-500 to-indigo-500 hover:from-purple-400 hover:to-indigo-400 disabled:opacity-60 text-white font-semibold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-purple-500/25"
         >
           {isGenerating ? (
             <>

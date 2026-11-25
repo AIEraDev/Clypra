@@ -327,7 +327,7 @@ function EffectCard({
       {/* Footer Title / Apply Button */}
       <div className="flex items-center justify-between w-full mt-0.5 z-10 px-0.5">
         <span
-          className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]"
+          className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-16.25"
           title={effect.name}
         >
           {effect.name}

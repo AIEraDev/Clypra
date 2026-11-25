@@ -51,20 +51,20 @@ export const MobileEditorLayout: React.FC = () => {
 
       <div className="flex-1 min-h-0 flex flex-col overflow-hidden gap-1">
         {/* Top Section: Video Preview */}
-        <div className="flex-1 min-h-[200px] flex flex-col overflow-hidden panel-shell">
+        <div className="flex-1 min-h-50 flex flex-col overflow-hidden panel-shell">
           <PreviewPanel />
         </div>
 
         {/* Middle Section: Touch Action Toolbar */}
         <div
-          className="h-10 shrink-0 panel-shell flex items-center justify-between px-[3px] bg-surface/50 backdrop-blur-sm select-none gap-0.5 w-full"
+          className="h-10 shrink-0 panel-shell flex items-center justify-between px-0.75 bg-surface/50 backdrop-blur-sm select-none gap-0.5 w-full"
           style={{ boxShadow: "none" }}
         >
           {/* Action Tabs */}
           <button
             onClick={importMedia}
             disabled={isImporting}
-            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary active:bg-surface-hover transition-colors cursor-pointer shrink-0"
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary transition-colors cursor-pointer shrink-0"
             title="Import Files"
           >
             <Plus className="w-4 h-4 text-accent-soft" />
@@ -73,7 +73,7 @@ export const MobileEditorLayout: React.FC = () => {
 
           <button
             onClick={() => openLibraryWithTab("media")}
-            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary active:bg-surface-hover transition-colors cursor-pointer shrink-0"
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary transition-colors cursor-pointer shrink-0"
             title="Media Assets"
           >
             <LibraryIcon className="w-4 h-4" />
@@ -82,7 +82,7 @@ export const MobileEditorLayout: React.FC = () => {
 
           <button
             onClick={() => openLibraryWithTab("text")}
-            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary active:bg-surface-hover transition-colors cursor-pointer shrink-0"
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary transition-colors cursor-pointer shrink-0"
             title="Add Text"
           >
             <Type className="w-4 h-4" />
@@ -91,7 +91,7 @@ export const MobileEditorLayout: React.FC = () => {
 
           <button
             onClick={() => openLibraryWithTab("audio")}
-            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary active:bg-surface-hover transition-colors cursor-pointer shrink-0"
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary transition-colors cursor-pointer shrink-0"
             title="Add Audio"
           >
             <Music className="w-4 h-4" />
@@ -100,7 +100,7 @@ export const MobileEditorLayout: React.FC = () => {
 
           <button
             onClick={() => openLibraryWithTab("transitions")}
-            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary active:bg-surface-hover transition-colors cursor-pointer shrink-0"
+            className="flex flex-col flex-1 items-center justify-center rounded-sm bg-surface-elevated text-text-primary transition-colors cursor-pointer shrink-0"
             title="Transitions"
           >
             <Shuffle className="w-4 h-4" />
@@ -110,7 +110,7 @@ export const MobileEditorLayout: React.FC = () => {
           <button
             onClick={() => setPropertiesSheetOpen(true)}
             disabled={!hasSelectedClip}
-            className={`flex flex-col flex-1 items-center justify-center rounded-sm transition-colors cursor-pointer shrink-0 bg-surface-elevated active:bg-surface-hover ${hasSelectedClip ? "text-text-primary" : "text-text-muted cursor-not-allowed"}`}
+            className={`flex flex-col flex-1 items-center justify-center rounded-sm transition-colors cursor-pointer shrink-0 bg-surface-elevated ${hasSelectedClip ? "text-text-primary" : "text-text-muted cursor-not-allowed"}`}
             title="Clip Properties"
           >
             <Sliders

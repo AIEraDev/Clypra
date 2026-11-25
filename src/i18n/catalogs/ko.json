@@ -676,5 +676,22 @@
   "preview.devDefaults": "개발 기본값: trace={{trace}} · zero-copy={{zeroCopy}} · 디코드={{decodePath}}",
   "preview.zeroCopyViolation": "Zero-copy 어설션: {{count}}건의 인시던트",
   "common.status.on": "켜짐",
-  "common.status.off": "꺼짐"
+  "common.status.off": "꺼짐",
+  "aiPlan.title": "AI 편집 계획 검토",
+  "aiPlan.summary": "{{cuts}}개 컷 · {{before}} → {{after}}",
+  "aiPlan.durationBefore": "이전: {{duration}}",
+  "aiPlan.durationAfter": "이후: {{duration}}",
+  "aiPlan.staleBanner": "이 계획이 생성된 이후 타임라인이 변경되었습니다.",
+  "aiPlan.rerun": "타임라인 변경됨, 다시 실행",
+  "aiPlan.approve": "적용",
+  "aiPlan.reject": "거부",
+  "aiPlan.keep": "유지",
+  "aiPlan.undo": "실행 취소",
+  "aiPlan.appliedBanner": "계획이 적용되었습니다({{count}}개 편집).",
+  "aiPlan.op.deleteRange": "범위 제거",
+  "aiPlan.op.split": "클립 분할",
+  "aiPlan.op.trim": "클립 자르기",
+  "aiPlan.op.addText": "텍스트 추가",
+  "aiPlan.toggleOp": "편집 {{index}} 전환",
+  "aiPlan.markersCount": "타임라인 마커 {{count}}개"
 }

@@ -603,6 +603,14 @@ pub(crate) fn fallback_monotonic_frame_time() -> FrameTime {
 pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
     // INVESTIGATION ONLY — remove before Phase 6
     log::debug!("[TR1] native_play_from_audio handler entry");
+    let _ = app.emit(
+        "clypra://native-diagnostic",
+        serde_json::json!({
+            "marker": "perf-transport-command",
+            "command": "native_play_from_audio",
+            "stage": "entry",
+        }),
+    );
 
     crate::engine::ENGINE_TELEMETRY.begin_playback_run();
 
@@ -628,6 +636,17 @@ pub fn native_play_from_audio(app: AppHandle) -> Result<PlaybackState, String> {
         let _ = set_audio_playing(&app, false);
         state
     };
+
+    let _ = app.emit(
+        "clypra://native-diagnostic",
+        serde_json::json!({
+            "marker": "perf-transport-command",
+            "command": "native_play_from_audio",
+            "stage": "complete",
+            "audioAvailable": audio_available,
+            "audioPositionTicks": state.audio_position_ticks,
+        }),
+    );
 
     if let Some(runtime) = app.try_state::<Arc<Mutex<NativePlaybackRuntime>>>() {
         runtime

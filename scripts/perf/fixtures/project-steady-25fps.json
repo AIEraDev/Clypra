@@ -1,0 +1,57 @@
+{
+  "id": "project-steady-25fps",
+  "name": "Steady Playback Benchmark (25fps)",
+  "created_at": 1700000000000,
+  "modified_at": 1700000000000,
+  "aspect_ratio": "16:9",
+  "canvas_width": 1920,
+  "canvas_height": 1080,
+  "frame_rate": 25,
+  "duration": 60,
+  "timeline_schema_version": 1,
+  "audio_model_version": 1,
+  "caption_model_version": 2,
+  "caption_tracks": [],
+  "transcripts": {},
+  "transitions": [],
+  "gaps": [],
+  "markers": [],
+  "main_video_track_id": "track-v1",
+  "media_assets": [
+    {
+      "id": "asset-video-25",
+      "name": "clip_1440p25_gop1s.mp4",
+      "path": "tests/fixtures/perf/clip_1440p25_gop1s.mp4",
+      "type": "video",
+      "duration": 60,
+      "width": 2560,
+      "height": 1440
+    }
+  ],
+  "tracks": [
+    {
+      "id": "track-v1",
+      "type": "video",
+      "name": "Video Track 1",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 80
+    }
+  ],
+  "clips": [
+    {
+      "id": "clip-v1",
+      "kind": "video",
+      "trackId": "track-v1",
+      "mediaId": "asset-video-25",
+      "name": "Video Clip 25fps",
+      "startTime": 0,
+      "duration": 60,
+      "trimIn": 0,
+      "trimOut": 60
+    }
+  ],
+  "text_effects": [],
+  "text_templates": []
+}

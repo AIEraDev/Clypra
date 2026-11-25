@@ -561,7 +561,7 @@ export const InlineKeyframeLane: React.FC<InlineKeyframeLaneProps> = ({
                 }}
                 onPointerDown={(e) => handleKeyframePointerDown(e, "all", kf)}
                 style={{ left: `${leftPx}px` }}
-                className={`pointer-events-auto absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rotate-45 rounded-[2px] transition-transform cursor-pointer select-none ${
+                className={`pointer-events-auto absolute -translate-x-1/2 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rotate-45 rounded-xs transition-transform cursor-pointer select-none ${
                   isActive
                     ? "bg-accent border-2 border-white shadow-[0_0_8px_var(--color-accent)] z-20"
                     : "bg-white/95 border border-black/80 shadow-[0_1px_4px_rgba(0,0,0,0.6)] z-10"

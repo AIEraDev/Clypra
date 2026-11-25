@@ -427,7 +427,38 @@ export class ProjectSession {
       // Create playback contexts and transport authority
       this._programContext = new ProgramPlaybackContext(this._playback);
       this._sourceContext = new SourcePlaybackContext();
+      const [{ useProjectStore }, { useTimelineStore: useTimelineStoreRef }] = await Promise.all([
+        import("@/store/projectStore"),
+        import("@/store/timelineStore"),
+      ]);
       this._transportAuthority = new TransportAuthority();
+      let lastOfflineToastAtMs = 0;
+      this._transportAuthority.setCanPlayGuard(() => {
+        const projectState = useProjectStore.getState();
+        const timelineState = useTimelineStoreRef.getState();
+        const missingAssetIds = new Set(
+          (projectState.mediaAssets ?? [])
+            .filter((asset) => asset.isMissing)
+            .map((asset) => asset.id),
+        );
+        if (missingAssetIds.size === 0) return true;
+        const hasOfflineTimelineClip = (timelineState.clips ?? []).some(
+          (clip) => clip.mediaId && missingAssetIds.has(clip.mediaId),
+        );
+        if (hasOfflineTimelineClip) {
+          const now = Date.now();
+          if (now - lastOfflineToastAtMs > 3000) {
+            lastOfflineToastAtMs = now;
+            projectState.showToast(
+              "Cannot play: one or more timeline media files are missing or offline. Use Relink Media to locate.",
+              "warning",
+              5000,
+            );
+          }
+          return false;
+        }
+        return true;
+      });
       this._transportAuthority.registerContext(this._programContext);
       this._transportAuthority.registerContext(this._sourceContext);
       // Default to program context

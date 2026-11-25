@@ -676,5 +676,22 @@
   "preview.devDefaults": "Dev defaults: trace={{trace}} · require_zero_copy={{zeroCopy}} · decode={{decodePath}}",
   "preview.zeroCopyViolation": "Zero-copy assertion: {{count}} incident(s)",
   "common.status.on": "On",
-  "common.status.off": "Off"
+  "common.status.off": "Off",
+  "aiPlan.title": "Review AI Edit Plan",
+  "aiPlan.summary": "{{cuts}} cuts · {{before}} → {{after}}",
+  "aiPlan.durationBefore": "Before: {{duration}}",
+  "aiPlan.durationAfter": "After: {{duration}}",
+  "aiPlan.staleBanner": "Timeline changed since this plan was built.",
+  "aiPlan.rerun": "Timeline changed, re-run",
+  "aiPlan.approve": "Apply",
+  "aiPlan.reject": "Reject",
+  "aiPlan.keep": "Keep",
+  "aiPlan.undo": "Undo",
+  "aiPlan.appliedBanner": "Plan applied ({{count}} edits).",
+  "aiPlan.op.deleteRange": "Remove range",
+  "aiPlan.op.split": "Split clip",
+  "aiPlan.op.trim": "Trim clip",
+  "aiPlan.op.addText": "Add text",
+  "aiPlan.toggleOp": "Toggle edit {{index}}",
+  "aiPlan.markersCount": "{{count}} timeline markers"
 }

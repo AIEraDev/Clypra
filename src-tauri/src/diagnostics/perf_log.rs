@@ -142,11 +142,16 @@ pub struct PerfSessionHeader {
     pub ffmpeg_callback_verified: bool,
     pub media_hash: Option<String>,
     pub project_hash: Option<String>,
+    pub project_computed_duration: Option<f64>,
+    pub project_frame_rate: Option<f64>,
+    pub media_frame_rate: Option<f64>,
     /// Canonical scenario identity. These remain optional for ordinary user
     /// sessions and are populated by the development scenario driver.
     pub scenario_id: Option<String>,
     pub scenario_hash: Option<String>,
     pub experiment_arm: Option<String>,
+    /// Human-readable meaning derived from resolved flags, not the arm letter.
+    pub experiment_arm_meaning: Option<String>,
     pub validation_mode: bool,
 }
 
@@ -294,6 +299,20 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
     ]
     .into_iter()
     .collect();
+    let experiment_arm = std::env::var("CLYPRA_EXPERIMENT_ARM").ok();
+    let experiment_arm_meaning = experiment_arm.as_ref().map(|_| {
+        if runtime_profile.disable_dirty_recovery.enabled {
+            "dirty-recovery-disabled".to_string()
+        } else {
+            "dirty-recovery-enabled".to_string()
+        }
+    });
+    let env_f64 = |name: &str| {
+        std::env::var(name)
+            .ok()
+            .and_then(|value| value.parse::<f64>().ok())
+            .filter(|value| value.is_finite() && *value > 0.0)
+    };
     PerfSessionHeader {
         schema_version: PERF_LOG_SCHEMA_VERSION,
         session_id: session_id.to_string(),
@@ -361,9 +380,13 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
         ffmpeg_callback_verified: crate::filmstrip_engine::decoder::ffmpeg_callback_verified(),
         media_hash: std::env::var("CLYPRA_MEDIA_HASH").ok(),
         project_hash: std::env::var("CLYPRA_PROJECT_HASH").ok(),
+        project_computed_duration: env_f64("CLYPRA_PROJECT_COMPUTED_DURATION"),
+        project_frame_rate: env_f64("CLYPRA_PROJECT_FRAME_RATE"),
+        media_frame_rate: env_f64("CLYPRA_MEDIA_FRAME_RATE"),
         scenario_id: std::env::var("CLYPRA_SCENARIO_ID").ok(),
         scenario_hash: std::env::var("CLYPRA_SCENARIO_HASH").ok(),
-        experiment_arm: std::env::var("CLYPRA_EXPERIMENT_ARM").ok(),
+        experiment_arm,
+        experiment_arm_meaning,
         validation_mode: runtime_profile.validate_stages.enabled,
     }
 }
@@ -435,6 +458,11 @@ fn probe_thermal_state() -> String {
 }
 
 pub fn get_perf_log_dir(app_data_dir: &Path) -> PathBuf {
+    if let Ok(custom) = std::env::var("CLYPRA_DATA_DIR") {
+        if !custom.trim().is_empty() {
+            return PathBuf::from(custom).join(PERF_LOG_DIR);
+        }
+    }
     app_data_dir.join(PERF_LOG_DIR)
 }
 

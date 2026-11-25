@@ -336,6 +336,19 @@ export function clearNativeSurfaceReadiness(projectId: string): void {
   surfaceReadiness.delete(projectId);
 }
 
+const resetListeners = new Set<() => void>();
+
+export function isNativeSurfaceConfigured(): boolean {
+  return nativeSurfaceConfigured;
+}
+
+export function onNativeSurfaceCoordinatorReset(listener: () => void): () => void {
+  resetListeners.add(listener);
+  return () => {
+    resetListeners.delete(listener);
+  };
+}
+
 /**
  * Reset all process-global native surface coordinator state.
  * Called on project close to ensure the next opened project undergoes a
@@ -354,4 +367,9 @@ export function resetGlobalNativeSurfaceCoordinator(): void {
     }
   }
   surfaceReadiness.clear();
+  for (const listener of resetListeners) {
+    try {
+      listener();
+    } catch {}
+  }
 }

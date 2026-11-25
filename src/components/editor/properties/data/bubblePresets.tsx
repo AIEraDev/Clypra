@@ -120,7 +120,8 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
           <div className="h-0.5 w-3/4 bg-blue-100 rounded-full" />
         </div>
         <span className="text-[7px] font-bold text-center leading-tight">
-          What a<br />nice day
+          What a<br />
+          nice day
         </span>
         <div className="h-0.5 w-full bg-blue-100 rounded-full" />
       </div>
@@ -141,7 +142,11 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     renderPreview: () => (
       <div className="w-10 h-11 rounded-[16px] bg-white border-2 border-dashed border-gray-800 text-gray-900 p-1 flex flex-col items-center justify-center shadow-xs">
         <span className="text-[6.5px] font-extrabold text-center leading-tight">
-          Don't<br />worry<br />happy
+          Don't
+          <br />
+          worry
+          <br />
+          happy
         </span>
       </div>
     ),
@@ -162,7 +167,11 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
       <div className="relative flex flex-col items-center">
         <div className="w-9 h-11 rounded-[18px] bg-white text-black p-1 flex items-center justify-center shadow-xs border border-gray-300">
           <span className="text-[6px] font-bold text-center leading-tight">
-            I love<br />you just<br />way you
+            I love
+            <br />
+            you just
+            <br />
+            way you
           </span>
         </div>
         <div className="w-1.5 h-1.5 bg-white border-r border-b border-gray-300 rotate-45 -mt-1" />
@@ -183,7 +192,9 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     },
     renderPreview: () => (
       <div className="w-11 h-8 rounded-[12px] bg-white border border-gray-400/60 shadow-xs flex items-center justify-center p-1 text-slate-900">
-        <span className="text-[7.5px] font-black text-center">Good Morning.</span>
+        <span className="text-[7.5px] font-black text-center">
+          Good Morning.
+        </span>
       </div>
     ),
   },
@@ -202,7 +213,9 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     renderPreview: () => (
       <div className="w-10 h-10 rounded-full bg-white border-2 border-black flex flex-col items-center justify-center p-0.5 shadow-xs">
         <span className="text-[7px] font-black tracking-tighter text-black uppercase">
-          Big News<br />!!!
+          Big News
+          <br />
+          !!!
         </span>
       </div>
     ),
@@ -222,7 +235,11 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     renderPreview: () => (
       <div className="w-10 h-11 rounded-[16px] bg-white border-2 border-dotted border-black flex items-center justify-center p-1">
         <span className="text-[6.5px] font-bold text-black text-center leading-tight">
-          Be the<br />best you<br />can be
+          Be the
+          <br />
+          best you
+          <br />
+          can be
         </span>
       </div>
     ),
@@ -243,7 +260,9 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     },
     renderPreview: () => (
       <div className="w-11 h-9 bg-white border-2 border-black flex items-center justify-center shadow-xs [clip-path:polygon(50%_0%,65%_25%,100%_20%,80%_50%,100%_80%,65%_75%,50%_100%,35%_75%,0%_80%,20%_50%,0%_20%,35%_25%)]">
-        <span className="text-[7.5px] font-black text-black tracking-tighter">BAM!!!</span>
+        <span className="text-[7.5px] font-black text-black tracking-tighter">
+          BAM!!!
+        </span>
       </div>
     ),
   },
@@ -262,7 +281,11 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     renderPreview: () => (
       <div className="w-10 h-11 rounded-[18px] bg-zinc-900 border border-zinc-700 text-white p-1 flex items-center justify-center">
         <span className="text-[6px] font-medium text-center text-zinc-200 leading-tight">
-          Old<br />superheroes<br />don't fade
+          Old
+          <br />
+          superheroes
+          <br />
+          don't fade
         </span>
       </div>
     ),
@@ -282,7 +305,9 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     renderPreview: () => (
       <div className="w-11 h-9 rounded-[14px] bg-zinc-900 border border-zinc-700 text-white p-1 flex items-center justify-center">
         <span className="text-[5.5px] font-medium text-center text-zinc-300 leading-tight">
-          With great power<br />responsibility
+          With great power
+          <br />
+          responsibility
         </span>
       </div>
     ),
@@ -302,7 +327,11 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     renderPreview: () => (
       <div className="w-9 h-11 rounded-[18px] bg-zinc-900 border border-zinc-700 text-white p-1 flex items-center justify-center">
         <span className="text-[6px] font-medium text-center text-zinc-200 leading-tight">
-          It's all<br />in our<br />heads
+          It's all
+          <br />
+          in our
+          <br />
+          heads
         </span>
       </div>
     ),
@@ -339,7 +368,9 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     },
     renderPreview: () => (
       <div className="w-11 h-7 bg-[#d4d4d8] text-[#3f3f46] flex items-center justify-center px-1 shadow-xs [clip-path:polygon(2%_0%,98%_10%,100%_90%,0%_100%)]">
-        <span className="text-[6.5px] font-sans font-medium text-center">sweetheart</span>
+        <span className="text-[6.5px] font-sans font-medium text-center">
+          sweetheart
+        </span>
       </div>
     ),
   },
@@ -357,7 +388,9 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     },
     renderPreview: () => (
       <div className="w-11 h-7 bg-white rounded-[3px] border border-gray-300 flex items-center justify-between p-0.5 text-zinc-900 shadow-xs">
-        <span className="bg-yellow-400 text-[6px] font-black px-0.5 rounded-xs">20%</span>
+        <span className="bg-yellow-400 text-[6px] font-black px-0.5 rounded-xs">
+          20%
+        </span>
         <span className="text-[7px] font-black">¥2300</span>
       </div>
     ),
@@ -434,7 +467,7 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
       bubblePresetId: "bubble-travel-plan",
     },
     renderPreview: () => (
-      <div className="w-11 h-6 rounded-[4px] bg-orange-100 border border-orange-200 text-orange-800 flex flex-col items-center justify-center">
+      <div className="w-11 h-6 rounded-lg bg-orange-100 border border-orange-200 text-orange-800 flex flex-col items-center justify-center">
         <span className="text-[6px] font-extrabold uppercase">Travel plan</span>
         <span className="text-[5px] bg-orange-200 px-1 rounded-xs">NEXT</span>
       </div>
@@ -453,7 +486,7 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
       bubblePresetId: "bubble-my-journey",
     },
     renderPreview: () => (
-      <div className="w-11 h-7 rounded-[4px] bg-white border border-sky-200 text-sky-600 flex items-center justify-center shadow-xs">
+      <div className="w-11 h-7 rounded-lg bg-white border border-sky-200 text-sky-600 flex items-center justify-center shadow-xs">
         <span className="text-[7px] font-mono font-bold">My journey</span>
       </div>
     ),
@@ -471,7 +504,7 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
       bubblePresetId: "bubble-sunny-day-ribbon",
     },
     renderPreview: () => (
-      <div className="w-11 h-5 rounded-[2px] bg-orange-500 text-white flex items-center justify-center shadow-xs [clip-path:polygon(0%_0%,100%_0%,93%_50%,100%_100%,0%_100%,7%_50%)]">
+      <div className="w-11 h-5 rounded-xs bg-orange-500 text-white flex items-center justify-center shadow-xs [clip-path:polygon(0%_0%,100%_0%,93%_50%,100%_100%,0%_100%,7%_50%)]">
         <span className="text-[6.5px] font-black uppercase">Sunny day</span>
       </div>
     ),
@@ -531,7 +564,9 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     },
     renderPreview: () => (
       <div className="w-11 h-6 bg-[#b45309] text-white flex items-center justify-center px-1 shadow-xs [clip-path:polygon(3%_0%,97%_5%,100%_95%,0%_100%)]">
-        <span className="text-[6.5px] font-serif font-bold italic">Be mine</span>
+        <span className="text-[6.5px] font-serif font-bold italic">
+          Be mine
+        </span>
       </div>
     ),
   },
@@ -548,7 +583,7 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
       bubblePresetId: "bubble-great-day-memo",
     },
     renderPreview: () => (
-      <div className="w-11 h-7 rounded-[4px] bg-sky-100 border border-sky-300 text-sky-800 flex flex-col items-center justify-center p-0.5">
+      <div className="w-11 h-7 rounded-lg bg-sky-100 border border-sky-300 text-sky-800 flex flex-col items-center justify-center p-0.5">
         <div className="w-4 h-1 bg-amber-300 rounded-xs mb-0.5" />
         <span className="text-[6px] font-bold">great day!</span>
       </div>
@@ -568,7 +603,9 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     },
     renderPreview: () => (
       <div className="w-10 h-11 bg-white border border-gray-300 text-slate-800 p-1 flex flex-col justify-between shadow-xs">
-        <span className="text-[5.5px] font-mono font-bold text-center border-b border-gray-200">LIST</span>
+        <span className="text-[5.5px] font-mono font-bold text-center border-b border-gray-200">
+          LIST
+        </span>
         <div className="text-[5px] font-mono leading-[5px] space-y-0.5">
           <div>• egg</div>
           <div>• milk</div>
@@ -611,12 +648,16 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
       bubblePresetId: "bubble-binder-study",
     },
     renderPreview: () => (
-      <div className="w-10 h-11 rounded-[4px] bg-amber-50 border border-amber-300 text-amber-800 p-1 flex flex-col justify-between shadow-xs">
+      <div className="w-10 h-11 rounded-lg bg-amber-50 border border-amber-300 text-amber-800 p-1 flex flex-col justify-between shadow-xs">
         <div className="flex gap-1 justify-center">
           <div className="w-1 h-1 rounded-full bg-amber-400" />
           <div className="w-1 h-1 rounded-full bg-amber-400" />
         </div>
-        <span className="text-[6px] font-bold text-center leading-tight">Study<br />Notes</span>
+        <span className="text-[6px] font-bold text-center leading-tight">
+          Study
+          <br />
+          Notes
+        </span>
         <div className="h-0.5 w-full bg-amber-200" />
       </div>
     ),
@@ -634,7 +675,7 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
       bubblePresetId: "bubble-note-coral",
     },
     renderPreview: () => (
-      <div className="w-11 h-8 rounded-[4px] bg-red-400 text-white p-1 flex flex-col justify-between shadow-xs">
+      <div className="w-11 h-8 rounded-lg bg-red-400 text-white p-1 flex flex-col justify-between shadow-xs">
         <span className="text-[6.5px] font-black italic">NOTE:</span>
         <span className="text-[5.5px] leading-tight">Please enter...</span>
       </div>
@@ -772,7 +813,9 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
     },
     renderPreview: () => (
       <div className="w-11 h-8 rounded-[12px] bg-zinc-950 border border-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.6)] text-pink-400 flex items-center justify-center">
-        <span className="text-[7px] font-serif italic tracking-wide">lovely</span>
+        <span className="text-[7px] font-serif italic tracking-wide">
+          lovely
+        </span>
       </div>
     ),
   },
@@ -827,7 +870,7 @@ export const BUBBLE_PRESETS: BubblePreset[] = [
       bubblePresetId: "bubble-neon-forward-arrow",
     },
     renderPreview: () => (
-      <div className="w-11 h-6 rounded-[4px] bg-slate-950 border border-cyan-400 text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.5)] flex items-center justify-center px-1">
+      <div className="w-11 h-6 rounded-lg bg-slate-950 border border-cyan-400 text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.5)] flex items-center justify-center px-1">
         <span className="text-[6px] font-mono font-black">FORWARD ➔</span>
       </div>
     ),

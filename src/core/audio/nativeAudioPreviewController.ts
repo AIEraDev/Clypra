@@ -503,6 +503,12 @@ export class NativeAudioPreviewController {
 
       this.active = true;
       this.lastState = this.clock.getState();
+      tracePlayback("native-audio-controller-ready", {
+        rendererState: this._rendererState,
+        sourceState: this._sourceState,
+        clockState: this.lastState.state,
+        transportAuthorityAvailable: this.transportAuthority !== undefined,
+      });
       this.unsubscribe = this.clock.subscribe((state) =>
         this.handleClockState(state),
       );
@@ -657,6 +663,15 @@ export class NativeAudioPreviewController {
     if (!this.active || this.disposed) return;
     const previous = this.lastState;
     this.lastState = state;
+    if (state.state !== previous?.state) {
+      tracePlayback("native-audio-clock-state", {
+        previousState: previous?.state ?? null,
+        state: state.state,
+        active: this.active,
+        rendererState: this._rendererState,
+        transportAuthorityAvailable: this.transportAuthority !== undefined,
+      });
+    }
 
     if (state.speed !== previous?.speed) {
       this.enqueueTransport(

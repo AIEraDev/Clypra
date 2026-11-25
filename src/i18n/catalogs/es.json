@@ -676,5 +676,22 @@
   "preview.devDefaults": "Valores de desarrollo: trace={{trace}} · zero-copy={{zeroCopy}} · decodificación={{decodePath}}",
   "preview.zeroCopyViolation": "Aserción zero-copy: {{count}} incidencia(s)",
   "common.status.on": "Activado",
-  "common.status.off": "Desactivado"
+  "common.status.off": "Desactivado",
+  "aiPlan.title": "Revisar plan de edición IA",
+  "aiPlan.summary": "{{cuts}} cortes · {{before}} → {{after}}",
+  "aiPlan.durationBefore": "Antes: {{duration}}",
+  "aiPlan.durationAfter": "Después: {{duration}}",
+  "aiPlan.staleBanner": "La línea de tiempo cambió desde que se creó este plan.",
+  "aiPlan.rerun": "La línea de tiempo cambió, volver a ejecutar",
+  "aiPlan.approve": "Aplicar",
+  "aiPlan.reject": "Rechazar",
+  "aiPlan.keep": "Mantener",
+  "aiPlan.undo": "Deshacer",
+  "aiPlan.appliedBanner": "Plan aplicado ({{count}} ediciones).",
+  "aiPlan.op.deleteRange": "Eliminar rango",
+  "aiPlan.op.split": "Dividir clip",
+  "aiPlan.op.trim": "Recortar clip",
+  "aiPlan.op.addText": "Añadir texto",
+  "aiPlan.toggleOp": "Alternar edición {{index}}",
+  "aiPlan.markersCount": "{{count}} marcadores en la línea de tiempo"
 }

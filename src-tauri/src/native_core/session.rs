@@ -212,6 +212,17 @@ fn frame_ticks(frame: u64, frame_rate: u32) -> Result<i64, NativeCoreError> {
     })
 }
 
+/// Return the largest frame count whose timestamp can be represented by the
+/// native playback timebase. Runtime-only playback sessions use this as an
+/// unbounded-duration sentinel; `u64::MAX` is not valid because converting it
+/// to microsecond ticks overflows the signed native timestamp contract.
+pub fn max_supported_duration_frames(frame_rate: u32) -> u64 {
+    if frame_rate == 0 {
+        return 0;
+    }
+    ((i64::MAX as u128 * frame_rate as u128) / DEFAULT_TIME_SCALE as u128) as u64
+}
+
 fn duration_ticks(plan: &PlaybackPlan) -> Result<i64, NativeCoreError> {
     frame_ticks(plan.duration_frames, plan.frame_rate)
 }
@@ -233,6 +244,14 @@ mod tests {
             duration_frames: 30,
             audio_track_count: 0,
         }
+    }
+
+    #[test]
+    fn max_supported_duration_is_valid_for_timestamp_conversion() {
+        let frame_rate = 30;
+        let duration_frames = max_supported_duration_frames(frame_rate);
+        assert!(duration_frames < u64::MAX);
+        assert!(frame_ticks(duration_frames, frame_rate).is_ok());
     }
 
     #[test]

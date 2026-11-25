@@ -41,6 +41,10 @@
               "ffmpegCallbackVerified": { "type": "boolean" },
               "mediaHash": { "type": ["string", "null"] },
               "projectHash": { "type": ["string", "null"] },
+              "projectComputedDuration": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+              "projectFrameRate": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+              "mediaFrameRate": { "type": ["number", "null"], "exclusiveMinimum": 0 },
+              "experimentArmMeaning": { "enum": ["dirty-recovery-enabled", "dirty-recovery-disabled", null] },
               "validationMode": { "type": "boolean" }
             }
           }

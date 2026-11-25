@@ -676,5 +676,22 @@
   "preview.devDefaults": "开发默认值：trace={{trace}} · zero-copy={{zeroCopy}} · 解码={{decodePath}}",
   "preview.zeroCopyViolation": "Zero-copy 断言：{{count}} 个事件",
   "common.status.on": "开启",
-  "common.status.off": "关闭"
+  "common.status.off": "关闭",
+  "aiPlan.title": "审核 AI 编辑计划",
+  "aiPlan.summary": "{{cuts}} 处剪辑 · {{before}} → {{after}}",
+  "aiPlan.durationBefore": "之前：{{duration}}",
+  "aiPlan.durationAfter": "之后：{{duration}}",
+  "aiPlan.staleBanner": "自生成此计划以来时间线已更改。",
+  "aiPlan.rerun": "时间线已更改，重新运行",
+  "aiPlan.approve": "应用",
+  "aiPlan.reject": "拒绝",
+  "aiPlan.keep": "保留",
+  "aiPlan.undo": "撤销",
+  "aiPlan.appliedBanner": "已应用计划（{{count}} 项编辑）。",
+  "aiPlan.op.deleteRange": "移除区间",
+  "aiPlan.op.split": "分割片段",
+  "aiPlan.op.trim": "裁剪片段",
+  "aiPlan.op.addText": "添加文本",
+  "aiPlan.toggleOp": "切换编辑 {{index}}",
+  "aiPlan.markersCount": "{{count}} 个时间线标记"
 }

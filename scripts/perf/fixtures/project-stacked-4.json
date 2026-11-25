@@ -1,0 +1,121 @@
+{
+  "id": "project-stacked-4",
+  "name": "Stacked Video Ramp 4-Layers",
+  "created_at": 1700000000000,
+  "modified_at": 1700000000000,
+  "aspect_ratio": "16:9",
+  "canvas_width": 1920,
+  "canvas_height": 1080,
+  "frame_rate": 25,
+  "duration": 35,
+  "timeline_schema_version": 1,
+  "audio_model_version": 1,
+  "caption_model_version": 2,
+  "caption_tracks": [],
+  "transcripts": {},
+  "transitions": [],
+  "gaps": [],
+  "markers": [],
+  "main_video_track_id": "track-v1",
+  "media_assets": [
+    {
+      "id": "asset-video-primary",
+      "name": "clip_1440p25_gop1s.mp4",
+      "path": "tests/fixtures/perf/clip_1440p25_gop1s.mp4",
+      "type": "video",
+      "duration": 60,
+      "width": 2560,
+      "height": 1440
+    }
+  ],
+  "tracks": [
+    {
+      "id": "track-v1",
+      "type": "video",
+      "name": "Video Layer 1",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 60
+    },
+    {
+      "id": "track-v2",
+      "type": "video",
+      "name": "Video Layer 2",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 60
+    },
+    {
+      "id": "track-v3",
+      "type": "video",
+      "name": "Video Layer 3",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 60
+    },
+    {
+      "id": "track-v4",
+      "type": "video",
+      "name": "Video Layer 4",
+      "muted": false,
+      "locked": false,
+      "visible": true,
+      "height": 60
+    }
+  ],
+  "clips": [
+    {
+      "id": "clip-v1",
+      "kind": "video",
+      "trackId": "track-v1",
+      "mediaId": "asset-video-primary",
+      "name": "Layer Clip 1",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 0,
+      "trimOut": 35,
+      "opacity": 0.35
+    },
+    {
+      "id": "clip-v2",
+      "kind": "video",
+      "trackId": "track-v2",
+      "mediaId": "asset-video-primary",
+      "name": "Layer Clip 2",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 2,
+      "trimOut": 37,
+      "opacity": 0.35
+    },
+    {
+      "id": "clip-v3",
+      "kind": "video",
+      "trackId": "track-v3",
+      "mediaId": "asset-video-primary",
+      "name": "Layer Clip 3",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 4,
+      "trimOut": 39,
+      "opacity": 0.35
+    },
+    {
+      "id": "clip-v4",
+      "kind": "video",
+      "trackId": "track-v4",
+      "mediaId": "asset-video-primary",
+      "name": "Layer Clip 4",
+      "startTime": 0,
+      "duration": 35,
+      "trimIn": 6,
+      "trimOut": 41,
+      "opacity": 0.35
+    }
+  ],
+  "text_effects": [],
+  "text_templates": []
+}

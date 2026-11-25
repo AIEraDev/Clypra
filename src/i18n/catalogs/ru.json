@@ -680,5 +680,22 @@
   "preview.devDefaults": "Параметры разработки: trace={{trace}} · zero-copy={{zeroCopy}} · декодирование={{decodePath}}",
   "preview.zeroCopyViolation": "Проверка zero-copy: инцидентов — {{count}}",
   "common.status.on": "Вкл.",
-  "common.status.off": "Выкл."
+  "common.status.off": "Выкл.",
+  "aiPlan.title": "Проверка плана ИИ-монтажа",
+  "aiPlan.summary": "{{cuts}} вырезок · {{before}} → {{after}}",
+  "aiPlan.durationBefore": "До: {{duration}}",
+  "aiPlan.durationAfter": "После: {{duration}}",
+  "aiPlan.staleBanner": "Таймлайн изменился после создания этого плана.",
+  "aiPlan.rerun": "Таймлайн изменился, повторить",
+  "aiPlan.approve": "Применить",
+  "aiPlan.reject": "Отклонить",
+  "aiPlan.keep": "Оставить",
+  "aiPlan.undo": "Отменить",
+  "aiPlan.appliedBanner": "План применён ({{count}} правок).",
+  "aiPlan.op.deleteRange": "Удалить фрагмент",
+  "aiPlan.op.split": "Разделить клип",
+  "aiPlan.op.trim": "Обрезать клип",
+  "aiPlan.op.addText": "Добавить текст",
+  "aiPlan.toggleOp": "Переключить правку {{index}}",
+  "aiPlan.markersCount": "{{count}} меток на таймлайне"
 }

@@ -66,12 +66,21 @@ pub async fn get_transfer_qr_code(
     custom_url: Option<String>,
 ) -> Result<String, String> {
     let service = get_service(&app)?;
+    let token = service.get_hub_token();
     let url = match custom_url {
-        Some(u) if !u.trim().is_empty() => u,
+        Some(u) if !u.trim().is_empty() => {
+            if u.contains("token=") {
+                u
+            } else if u.contains('?') {
+                format!("{u}&token={token}")
+            } else {
+                format!("{u}?token={token}")
+            }
+        }
         _ => {
             let ip = local_ip();
             let port = service.get_bound_port();
-            format!("http://{}:{}", ip, port)
+            format!("http://{}:{}/?token={}", ip, port, token)
         }
     };
     generate_qr_svg(&url)

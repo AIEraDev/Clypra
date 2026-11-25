@@ -1,0 +1,46 @@
+{
+  "platform": "default",
+  "description": "Default baseline acceptance performance budgets",
+  "criteria": {
+    "presentationRatioMin": 0.95,
+    "dirtyRecoveriesMax": 1,
+    "zeroCopyViolationsMax": 0,
+    "playStartAttemptsMax": 1,
+    "longestFreezeMsMax": 200.0,
+    "p99InterPresentMsMax": 60.0,
+    "timeToFirstFrameMsMax": 1000.0,
+    "lookaheadDepthSteadyMin": 2
+  },
+  "scenarios": {
+    "playback-steady-25fps": {
+      "steadyPresentationRatioMin": 0.98,
+      "longestFreezeMsMax": 80.0,
+      "p99InterPresentMsMax": 45.0,
+      "lookaheadDepthSteadyMin": 3
+    },
+    "playback-steady-30fps": {
+      "steadyPresentationRatioMin": 0.98,
+      "longestFreezeMsMax": 80.0,
+      "p99InterPresentMsMax": 40.0,
+      "lookaheadDepthSteadyMin": 3
+    },
+    "playback-video-gop10s": {
+      "steadyPresentationRatioMin": 0.95,
+      "longestFreezeMsMax": 160.0,
+      "p99InterPresentMsMax": 50.0,
+      "lookaheadDepthSteadyMin": 2
+    },
+    "playback-composite-25fps": {
+      "steadyPresentationRatioMin": 0.95,
+      "longestFreezeMsMax": 180.0,
+      "p99InterPresentMsMax": 55.0,
+      "lookaheadDepthSteadyMin": 2
+    },
+    "playback-composite-30fps": {
+      "steadyPresentationRatioMin": 0.95,
+      "longestFreezeMsMax": 180.0,
+      "p99InterPresentMsMax": 50.0,
+      "lookaheadDepthSteadyMin": 2
+    }
+  }
+}

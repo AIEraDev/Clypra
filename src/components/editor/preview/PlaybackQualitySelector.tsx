@@ -43,7 +43,7 @@ export const PlaybackQualitySelector: React.FC<
       </button>
       {qualityMenuOpen && (
         <div
-          className="absolute bottom-full left-0 z-50 mb-1.5 w-[280px] overflow-hidden rounded-xl border border-border bg-surface-floating/95 backdrop-blur-xl py-1.5 text-text-primary shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+          className="absolute bottom-full left-0 z-50 mb-1.5 w-70 overflow-hidden rounded-xl border border-border bg-surface-floating/95 backdrop-blur-xl py-1.5 text-text-primary shadow-2xl animate-in fade-in zoom-in-95 duration-100"
           role="listbox"
         >
           <div className="px-1.5 space-y-0.5">

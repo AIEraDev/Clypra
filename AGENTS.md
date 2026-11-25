@@ -18,7 +18,7 @@ Clypra is a high-performance native desktop video editor (`v1.6.7`) targeting ma
 ## 2. Architectural Invariants (Non-Negotiable)
 1. **Single Time Source**: `PlaybackClock.ts` is the sole session authority for playback position. Never create secondary clocks. Note: singleton module requires dev server restart after edits.
 2. **EvaluatedScene Currency**: All render pipelines (preview, export, thumbnail, filmstrip) consume `EvaluatedScene` emitted by `evaluateTimelineSceneCached()`. Never read `timelineStore` directly in render loops.
-3. **Command-Pattern Mutations**: All undoable timeline edits must be dispatched via `historyStore.dispatch(command)`. Direct store array mutations bypass undo history.
+3. **Command-Pattern Mutations**: All undoable timeline edits must be dispatched via `useHistoryStore.getState().execute(command)` (or `beginTransaction` / `commitTransaction`). Direct store array mutations bypass undo history.
 4. **Asynchronous Asset Hydration**: `MediaAsset.path` is empty (`""`) until probed. Never pass empty paths to Rust IPC. Respect `.filter(c => Boolean(c.path))` in `getActiveAudioClips()`.
 5. **IPC Discipline**: Every Tauri `invoke()` has latency (0.5–2ms warm, 50–500ms cold). Never invoke IPC in `requestAnimationFrame` loops for non-essential tasks. Batch and debounce.
 6. **Native Preview Surface Invariant**: The native GPU preview (Metal on macOS, DirectX 12 on Windows) is enabled by default. Default builds and dev sessions use the native hardware surface; set `VITE_CLYPRA_NATIVE_SURFACE=0` to force the WebGL/web-canvas readback fallback.
@@ -94,6 +94,15 @@ npm run benchmark:playback
 # Baseline regression comparator
 npm run benchmark:compare
 
+# Automated performance loop (fast dev iteration)
+npm run perf:cycle
+
+# Unified release gate performance qualification
+npm run perf:gate
+
+# Deterministic performance fixtures & manifest generator
+npm run perf:fixtures
+
 # Targeted verification based on git changed files
 npm run verify:changed
 
@@ -143,15 +152,16 @@ Before reporting any task complete, every agent must verify:
    - `npm run docs:check` passed if documentation links changed.
 6. **Clean Working Tree**: No untracked scratch files left in source directories.
 7. **Explicit Reporting**: Document what was verified, commands executed, and any environment-dependent checks that could not run.
-8. **Subsystem Contract Suites**: When changing files in `src/core/playback/`, `src/core/audio/`, `src/components/editor/preview/`, or `src/features/text-effects/`, ALL four behavioral contract suites must pass:
+8. **Subsystem Contract Suites**: When changing files in `src/core/playback/`, `src/core/audio/`, `src/components/editor/preview/`, `src/features/text-effects/`, `src/features/text-templates/`, or `src/core/evaluation/`, ALL five behavioral contract suites must pass:
    ```bash
    npx vitest run src/core/playback/__tests__/replayBehavioralContract.test.ts
    npx vitest run src/core/audio/__tests__/audioPreviewSyncContract.test.ts
    npx vitest run src/components/editor/preview/__tests__/previewStateResetContract.test.ts
    npx vitest run src/features/text-effects/__tests__/textEditPreviewCycle.test.ts
+   npx vitest run src/core/evaluation/__tests__/compositeMediaBehavioralContract.test.ts
    ```
 9. **Negative Control (Bug Fixes)**: Every bug fix must demonstrate that the new regression test FAILS on the base commit. Apply only the test file to the pre-fix codebase and confirm failure.
-10. **Evidence Bundle**: Changes to preview, playback, audio, text, or sticker code must include raw command output in the PR description. Use the PR template at `.github/pull_request_template.md`.
+10. **Evidence Bundle**: Changes to preview, playback, audio, text, or sticker code must include raw command output and `npm run perf:cycle --auto` report in the PR description. Use the PR template at `.github/pull_request_template.md`.
 11. **Mutation Canary**: Run `npm run verify:canary-mutations` to confirm known-bad patches turn contract tests red.
 
 ---
@@ -254,6 +264,7 @@ Enforce the Zero-Trust Three-Tier Defensive Architecture: Tier 1 (prototype poll
 - **`bugfix-regression`** ([`.agents/skills/bugfix-regression/SKILL.md`](.agents/skills/bugfix-regression/SKILL.md)): Defect diagnosis, minimal fix isolation, and automated regression test creation.
 - **`code-review`** ([`.agents/skills/code-review/SKILL.md`](.agents/skills/code-review/SKILL.md)): Systematic review of PRs, diffs, concurrency bugs, and architectural boundaries.
 - **`clypra-media-regression-testing`** ([`.agents/skills/clypra-media-regression-testing/SKILL.md`](.agents/skills/clypra-media-regression-testing/SKILL.md)): Media testing, gap engine verification, and EvaluatedScene assertions.
+- **`clypra-composite-media-automation`** ([`.agents/skills/clypra-composite-media-automation/SKILL.md`](.agents/skills/clypra-composite-media-automation/SKILL.md)): Multi-layer composite automation, performance scenario benchmarking, and behavioral contract verification for text effects, text templates, audio sync, image overlays, and multi-track video.
 - **`release-readiness`** ([`.agents/skills/release-readiness/SKILL.md`](.agents/skills/release-readiness/SKILL.md)): Pre-release audit, packaged bundle smoke checks, and sidecar binary validation.
 - **Master Engineering References**:
   - Architecture Overview: [`docs/engineering/architecture-overview.md`](docs/engineering/architecture-overview.md)

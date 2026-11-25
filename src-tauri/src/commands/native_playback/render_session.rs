@@ -42,6 +42,7 @@ pub(crate) struct NativeRenderSession {
     pub(crate) last_interactive_preempt_epoch: AtomicU64,
     pub(crate) worker: Mutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     pub(crate) configured_at: Instant,
+    pub(crate) started_at: Mutex<Option<Instant>>,
     pub(crate) ready_after_us: AtomicU64,
     pub(crate) first_presented: AtomicBool,
     /// Playback lookahead may need a more conservative scale than the
@@ -333,7 +334,15 @@ impl NativeRenderSession {
                 return;
             }
         }
-        let _ = app.emit("clypra://native-playback-demand-terminal", terminal);
+        let mut payload = serde_json::to_value(terminal).unwrap_or_else(|_| serde_json::json!({}));
+        if let Some(object) = payload.as_object_mut() {
+            object.insert(
+                "phaseId".to_string(),
+                serde_json::to_value(crate::commands::perf_driver::active_phase_id())
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        let _ = app.emit("clypra://native-playback-demand-terminal", payload);
     }
 
     fn experiment_context(
@@ -640,6 +649,7 @@ impl NativeRenderSession {
             last_interactive_preempt_epoch: AtomicU64::new(u64::MAX),
             worker: Mutex::new(None),
             configured_at,
+            started_at: Mutex::new(None),
             ready_after_us: AtomicU64::new(0),
             first_presented: AtomicBool::new(false),
             playback_quality: AtomicU8::new(quality_to_code(initial_playback_quality)),
@@ -843,6 +853,9 @@ impl NativeRenderSession {
     }
 
     pub(crate) fn start(self: &Arc<Self>, app: AppHandle) {
+        if let Ok(mut started_at) = self.started_at.lock() {
+            *started_at = Some(Instant::now());
+        }
         // Do not carry missed-deadline history from a stopped/paused audio
         // clock into a new playback epoch.
         self.reset_playback_lookahead_feedback();
@@ -1537,7 +1550,9 @@ impl NativeRenderSession {
                         contract_version: base_request.contract_version,
                         project_revision: base_request.project.project_revision.clone(),
                         frame_rate: base_request.project.frame_rate,
-                        duration_frames: u64::MAX,
+                        duration_frames: crate::native_core::session::max_supported_duration_frames(
+                            base_request.project.frame_rate.max(1),
+                        ),
                         audio_track_count: 0,
                     },
                 ) {
@@ -1628,6 +1643,7 @@ impl NativeRenderSession {
                                     "generation": generation,
                                     "state": "playing",
                                     "demandClass": "continuous_playback",
+                                    "phaseId": crate::commands::perf_driver::active_phase_id(),
                                 }),
                             );
                             if let Some(t) = &presentation.timings {
@@ -1685,6 +1701,7 @@ impl NativeRenderSession {
                                 playback_lookahead_misses: u64,
                                 native_state: &'static str,
                                 demand_class: &'static str,
+                                phase_id: Option<String>,
                             }
 
                             let _ = app.emit(
@@ -1704,6 +1721,7 @@ impl NativeRenderSession {
                                     playback_lookahead_misses,
                                     native_state: "playing",
                                     demand_class: "continuous_playback",
+                                    phase_id: crate::commands::perf_driver::active_phase_id(),
                                 },
                             );
 
@@ -1835,6 +1853,7 @@ impl NativeRenderSession {
                             "demandClass": "paused_seek",
                             "frameIndex": request.frame_time.frame_index,
                             "generation": request.target_generation.or(request.generation),
+                            "phaseId": crate::commands::perf_driver::active_phase_id(),
                         }),
                     );
                 }
@@ -1865,14 +1884,19 @@ impl NativeRenderSession {
                 if presentation.presented {
                     if !self.first_presented.swap(true, Ordering::AcqRel) {
                         crate::cold_start::record_first_frame();
-                        let elapsed_us = self
-                            .configured_at
+                        let start_anchor = self
+                            .started_at
+                            .lock()
+                            .ok()
+                            .and_then(|guard| *guard)
+                            .unwrap_or(self.configured_at);
+                        let elapsed_us = start_anchor
                             .elapsed()
                             .as_micros()
                             .min(u64::MAX as u128) as u64;
                         crate::cold_start::record_span(
                             "c4_first_frame",
-                            self.configured_at,
+                            start_anchor,
                             elapsed_us,
                             false,
                         );
@@ -2044,6 +2068,7 @@ mod tests {
             last_interactive_preempt_epoch: AtomicU64::new(u64::MAX),
             worker: Mutex::new(None),
             configured_at: Instant::now(),
+            started_at: Mutex::new(None),
             ready_after_us: AtomicU64::new(0),
             first_presented: AtomicBool::new(false),
             playback_quality: AtomicU8::new(0),

@@ -69,9 +69,13 @@ export interface PerfSessionHeader {
   ffmpegCallbackVerified?: boolean;
   mediaHash?: string | null;
   projectHash?: string | null;
+  projectComputedDuration?: number | null;
+  projectFrameRate?: number | null;
+  mediaFrameRate?: number | null;
   scenarioId?: string | null;
   scenarioHash?: string | null;
   experimentArm?: string | null;
+  experimentArmMeaning?: "dirty-recovery-enabled" | "dirty-recovery-disabled" | null;
   validationMode: boolean;
 }
 

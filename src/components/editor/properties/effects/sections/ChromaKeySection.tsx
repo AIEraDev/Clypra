@@ -3,7 +3,8 @@ import React from "react";
 import { Pipette, Sparkles } from "lucide-react";
 import type { Clip } from "@/types";
 import { useI18n } from "@/i18n";
-import { useTimelineStore } from "@/store/timelineStore";
+import { useHistoryStore } from "@/store/historyStore";
+import { UpdateClipCommand } from "@/core/history/commands/UpdateClipCommand";
 import { useEyedropper } from "@/core/hooks/useEyedropper";
 import { defaultChromaKeyConfig } from "@/types/compositor";
 import { PropertySection } from "../../primitives/PropertySection";
@@ -20,14 +21,23 @@ export const ChromaKeySection: React.FC<ChromaKeySectionProps> = ({
   surfaceRef,
 }) => {
   const { t } = useI18n();
-  const updateClipChromaKey = useTimelineStore(
-    (state) => state.updateClipChromaKey,
-  );
+  const chromaKey = selectedClip.chromaKey ?? defaultChromaKeyConfig;
+  const updateClipChromaKey = (
+    clipId: string,
+    patch: Partial<typeof defaultChromaKeyConfig>,
+  ) => {
+    const nextChromaKey = { ...chromaKey, ...patch };
+    useHistoryStore.getState().execute(
+      new UpdateClipCommand(
+        clipId,
+        { chromaKey: selectedClip.chromaKey },
+        { chromaKey: nextChromaKey },
+      ),
+    );
+  };
   const { pickColor, isPicking } = useEyedropper(
     surfaceRef ?? { current: null },
   );
-
-  const chromaKey = selectedClip.chromaKey ?? defaultChromaKeyConfig;
 
   const handleToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
     updateClipChromaKey(selectedClip.id, { enabled: e.target.checked });

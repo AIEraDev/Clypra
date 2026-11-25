@@ -132,7 +132,7 @@ export const TemplateCard: React.FC<TemplateCardProps> = ({
 
       {/* Footer — name + apply button, always visible like EffectCard */}
       <div className="flex items-center justify-between w-full mt-0.5 z-10">
-        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[65px]">
+        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-16.25">
           {template.name}
         </span>
         <button

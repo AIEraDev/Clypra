@@ -302,6 +302,7 @@ mod tests {
             last_interactive_preempt_epoch: AtomicU64::new(u64::MAX),
             worker: Mutex::new(None),
             configured_at: Instant::now(),
+            started_at: Mutex::new(None),
             ready_after_us: AtomicU64::new(0),
             first_presented: AtomicBool::new(false),
             playback_quality: AtomicU8::new(super::render_session::quality_to_code(

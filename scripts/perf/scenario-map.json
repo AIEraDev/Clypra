@@ -1,0 +1,94 @@
+{
+  "mappings": [
+    {
+      "patterns": [
+        "src-tauri/src/commands/native_preview/**",
+        "src-tauri/src/engine/**",
+        "src-tauri/src/wgpu_compositor/**",
+        "src/components/editor/preview/**"
+      ],
+      "scenarios": [
+        "playback-steady-25fps",
+        "playback-steady-30fps",
+        "playback-video-gop10s",
+        "project-stacked-2",
+        "cold-seek",
+        "scrub-sweep"
+      ]
+    },
+    {
+      "patterns": [
+        "src/core/playback/**",
+        "src/store/playbackClock.ts",
+        "src-tauri/src/commands/native_playback/**"
+      ],
+      "scenarios": [
+        "playback-steady-25fps",
+        "playback-steady-30fps",
+        "cold-seek",
+        "scrub-sweep",
+        "clip-boundary"
+      ]
+    },
+    {
+      "patterns": [
+        "src/features/text-effects/**",
+        "src/features/text-templates/**",
+        "src-tauri/src/commands/text_render.rs"
+      ],
+      "scenarios": [
+        "project-text",
+        "project-text-effect",
+        "project-text-template",
+        "playback-composite-25fps"
+      ]
+    },
+    {
+      "patterns": [
+        "src/core/audio/**",
+        "src-tauri/src/audio/**"
+      ],
+      "scenarios": [
+        "project-audio",
+        "playback-composite-25fps"
+      ]
+    },
+    {
+      "patterns": [
+        "src/core/evaluation/**",
+        "src/core/timeline/**"
+      ],
+      "scenarios": [
+        "playback-composite-25fps",
+        "playback-composite-30fps",
+        "composite-scrub-sweep"
+      ]
+    }
+  ],
+  "defaultScenarios": [
+    "playback-steady-25fps",
+    "playback-steady-30fps"
+  ],
+  "tierScenarios": {
+    "tier1": [
+      "playback-steady-25fps",
+      "playback-steady-30fps",
+      "playback-video-gop10s",
+      "project-image",
+      "project-audio",
+      "project-text",
+      "project-text-effect",
+      "project-text-template"
+    ],
+    "tier2": [
+      "project-stacked-2",
+      "project-stacked-4",
+      "project-stacked-6",
+      "project-stacked-8"
+    ],
+    "tier3": [
+      "playback-composite-25fps",
+      "playback-composite-30fps"
+    ]
+  }
+}

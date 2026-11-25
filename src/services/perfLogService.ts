@@ -566,6 +566,7 @@ export class PerfLogService {
             frontendStats = {
               units: "milliseconds",
               modeStats: nativePerfCollector.allStats(),
+              phaseStats: nativePerfCollector.phaseStats(),
               pushBridge: nativePerfCollector.pushBridgeStats(),
             };
           } catch {
@@ -1289,6 +1290,12 @@ export class PerfLogService {
             timestampEpochMs: Date.now(),
             payload,
           });
+          const diag = payload as { marker?: string } | null;
+          if (diag?.marker === "perf-phase") {
+            void this.pollEngineTelemetry();
+            void this.pollNativeSessionTelemetry();
+            void this.flushQueue();
+          }
         },
       );
       this.diagnosticsUnlisten = unlisten;

@@ -728,7 +728,7 @@ export const CurveEditorModal: React.FC = () => {
             {/* Draggable Handle P1 */}
             <g
               transform={`translate(${p1X}, ${p1Y})`}
-              className="cursor-grab active:cursor-grabbing"
+              className="cursor-grab"
               onPointerDown={(e) => handlePointerDown(1, e)}
             >
               <circle r="12" fill="transparent" />
@@ -744,7 +744,7 @@ export const CurveEditorModal: React.FC = () => {
             {/* Draggable Handle P2 */}
             <g
               transform={`translate(${p2X}, ${p2Y})`}
-              className="cursor-grab active:cursor-grabbing"
+              className="cursor-grab"
               onPointerDown={(e) => handlePointerDown(2, e)}
             >
               <circle r="12" fill="transparent" />

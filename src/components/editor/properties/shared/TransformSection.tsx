@@ -536,7 +536,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       Number(e.target.value),
                     )
                   }
-                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none tabular-nums selectable"
                 />
               </div>
               <div>
@@ -552,7 +552,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                       Number(e.target.value),
                     )
                   }
-                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none tabular-nums selectable"
                 />
               </div>
             </div>
@@ -620,7 +620,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   type="number"
                   value={Math.round(Math.abs(selectedClip.width))}
                   onChange={(e) => handleWidthChange(Number(e.target.value))}
-                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none tabular-nums selectable"
                 />
               </div>
               <div>
@@ -631,7 +631,7 @@ export const TransformSection: React.FC<TransformSectionProps> = ({
                   type="number"
                   value={Math.round(Math.abs(selectedClip.height))}
                   onChange={(e) => handleHeightChange(Number(e.target.value))}
-                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none focus:border-accent tabular-nums selectable"
+                  className="w-full bg-surface-elevated border border-border-default rounded-md px-2 py-1 text-xs text-text-primary outline-none tabular-nums selectable"
                 />
               </div>
             </div>

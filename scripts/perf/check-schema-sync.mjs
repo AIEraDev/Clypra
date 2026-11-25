@@ -28,9 +28,13 @@ const headerFields = [
   "ffmpegCallbackVerified",
   "mediaHash",
   "projectHash",
+  "projectComputedDuration",
+  "projectFrameRate",
+  "mediaFrameRate",
   "scenarioId",
   "scenarioHash",
   "experimentArm",
+  "experimentArmMeaning",
   "validationMode",
 ];
 
@@ -67,7 +71,7 @@ function assertRustFields(source, fields, typeName) {
 function assertSchemaRequired(schema, fields, label) {
   const required = new Set(schema.allOf?.[0]?.then?.properties?.payload?.required ?? []);
   for (const field of fields) {
-    if (field === "scenarioId" || field === "scenarioHash" || field === "experimentArm") continue;
+    if (field === "scenarioId" || field === "scenarioHash" || field === "experimentArm" || field === "experimentArmMeaning" || field === "projectComputedDuration" || field === "projectFrameRate" || field === "mediaFrameRate") continue;
     if (!required.has(field)) throw new Error(`schema session-header payload is missing required ${field}`);
   }
   const buildRequired = new Set(

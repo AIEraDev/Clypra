@@ -59,5 +59,37 @@ describe("nativePerfCollector unique frames and clock rate", () => {
     // Before 500 ms wall-time has elapsed, returns null to avoid noisy early division
     expect(stats.droppedCount).toBe(1);
   });
+
+  it("groups frame evidence by the active phase", () => {
+    nativePerfCollector.clear();
+    nativePerfCollector.record(sample({ phaseId: "steady_playback", frameIndex: 1 }));
+    nativePerfCollector.record(
+      sample({ phaseId: "steady_playback", frameIndex: 2, dropped: true }),
+    );
+    nativePerfCollector.record(sample({ phaseId: "scrub", frameIndex: 9, stale: true }));
+
+    expect(nativePerfCollector.phaseStats()).toEqual([
+      {
+        phaseId: "steady_playback",
+        sampleCount: 2,
+        presentedCount: 1,
+        droppedCount: 1,
+        staleCount: 0,
+        cancelledCount: 0,
+        uniquePresentedFrames: 1,
+        presentedFraction: 0.5,
+      },
+      {
+        phaseId: "scrub",
+        sampleCount: 1,
+        presentedCount: 0,
+        droppedCount: 0,
+        staleCount: 1,
+        cancelledCount: 0,
+        uniquePresentedFrames: 0,
+        presentedFraction: 0,
+      },
+    ]);
+  });
 });
 

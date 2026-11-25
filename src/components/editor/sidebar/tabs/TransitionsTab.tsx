@@ -275,7 +275,7 @@ const TransitionCard: React.FC<{
       {/* Footer - name + apply button, always visible */}
       <div className="flex items-center justify-between w-full mt-0.5 z-10">
         <span
-          className={`text-[9px] font-medium truncate max-w-[65px] ${disabled ? "text-text-muted" : "text-text-muted group-hover:text-text-primary"} transition-colors`}
+          className={`text-[9px] font-medium truncate max-w-16.25 ${disabled ? "text-text-muted" : "text-text-muted group-hover:text-text-primary"} transition-colors`}
         >
           {transition.name}
         </span>

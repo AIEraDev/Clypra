@@ -39,6 +39,14 @@ pub struct RecentProjectEntry {
 }
 
 fn get_projects_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if let Ok(custom) = std::env::var("CLYPRA_DATA_DIR") {
+        if !custom.trim().is_empty() {
+            let projects_dir = PathBuf::from(custom).join("projects");
+            fs::create_dir_all(&projects_dir)
+                .map_err(|e| format!("Failed to create custom projects dir: {}", e))?;
+            return Ok(projects_dir);
+        }
+    }
     let app_data = app
         .path()
         .app_data_dir()

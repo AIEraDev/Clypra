@@ -218,6 +218,8 @@ pub struct NativeSurfacePresentation {
     pub contract_version: u32,
     pub request_id: String,
     pub frame_index: u64,
+    #[serde(default)]
+    pub phase_id: Option<String>,
     pub presented: bool,
     /// True when the frame was intentionally discarded because it was stale
     /// relative to the native audio clock or superseded by a newer request.

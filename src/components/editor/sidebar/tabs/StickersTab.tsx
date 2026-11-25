@@ -136,7 +136,7 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search stickers & emojis..."
-            className="w-full bg-surface-raised/40 border border-border/40 hover:border-border/80 focus:border-accent rounded-lg pl-8 pr-3 py-1.5 text-xs text-text-primary placeholder:text-text-muted focus:outline-none transition-colors"
+            className="w-full bg-surface-raised/40 border border-border/40 hover:border-border/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-text-primary focus:outline-none transition-colors"
           />
         </div>
       </div>
@@ -364,7 +364,7 @@ const StickerCard: React.FC<{
         ) : (
           <div className="flex flex-col items-center justify-center gap-1 text-text-muted">
             <span className="text-xl">✨</span>
-            <span className="text-[8px] font-medium truncate max-w-[60px]">
+            <span className="text-[8px] font-medium truncate max-w-15">
               {sticker.name}
             </span>
           </div>
@@ -373,7 +373,7 @@ const StickerCard: React.FC<{
 
       {/* Footer: name + add/download button */}
       <div className="flex items-center justify-between w-full mt-0.5 z-10 px-0.5">
-        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-[62px]">
+        <span className="text-[9px] text-text-muted font-medium group-hover:text-text-primary transition-colors truncate max-w-15.5">
           {sticker.name}
         </span>
         <button

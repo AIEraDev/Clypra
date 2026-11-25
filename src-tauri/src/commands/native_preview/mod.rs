@@ -3450,6 +3450,7 @@ pub(crate) fn record_playback_presentation(app: &tauri::AppHandle, frame_index: 
                 "marker": "sched.resync-recovered",
                 "frameIndex": frame_index,
                 "recoveryMs": now_ms.saturating_sub(pending_resync_at_ms),
+                "phaseId": crate::commands::perf_driver::active_phase_id(),
             }),
         );
     }
@@ -3475,7 +3476,7 @@ fn trace_lookahead_scheduler_decision(
             | LookaheadWorkerAction::Keep {
                 reason: "resync_deferred"
             }
-    ) || sample.is_multiple_of(30);
+    ) || sample.is_multiple_of(10);
     if !should_emit {
         return;
     }
@@ -3509,6 +3510,7 @@ fn trace_lookahead_scheduler_decision(
             "msSincePreviousResync": (previous_resync_at_ms > 0).then_some(now_ms.saturating_sub(previous_resync_at_ms)),
             "lagForMs": lag_for_ms,
             "workerState": "active",
+            "phaseId": crate::commands::perf_driver::active_phase_id(),
             "targetPts": target_end_frame as f64 / fps,
             "playheadPts": current_audio_secs,
             "generation": generation,
@@ -3592,6 +3594,7 @@ fn record_playback_lookahead_outcome(app: &tauri::AppHandle, queue_hit: bool) {
                         "fromQuality": format!("{:?}", previous_quality),
                         "toQuality": format!("{:?}", next_quality),
                         "reason": "consecutive-lookahead-misses",
+                        "phaseId": crate::commands::perf_driver::active_phase_id(),
                     }),
                 );
             }
@@ -3725,9 +3728,16 @@ pub(crate) fn schedule_lookahead_predecode(
         }
 
         if let LookaheadWorkerAction::Keep { .. } = decision {
+            let target_horizon = current_audio_frame.saturating_add(lookahead_count as u64);
+            if target_horizon > end_f {
+                active
+                    .end_frame
+                    .store(target_horizon, std::sync::atomic::Ordering::Release);
+            }
             // PR4: count dropped trigger and record ahead-of-clock
             crate::filmstrip_engine::stream_actor::record_lookahead_trigger_dropped();
-            let end_time_secs = end_f as f64 / fps;
+            let current_end_f = active.end_frame.load(std::sync::atomic::Ordering::Acquire);
+            let end_time_secs = current_end_f as f64 / fps;
             let ahead_ms = (end_time_secs - current_audio_secs) * 1_000.0;
             crate::filmstrip_engine::stream_actor::record_producer_ahead_of_clock_ms(ahead_ms);
             return;
@@ -3821,7 +3831,8 @@ pub(crate) fn schedule_lookahead_predecode(
             return;
         }
 
-        for target_frame_index in start_frame_index..=target_end_frame_index {
+        let mut target_frame_index = start_frame_index;
+        while target_frame_index <= worker_end_clone.load(std::sync::atomic::Ordering::Acquire) {
             // Check generation currency before each frame
             if let Some(queue) = app.try_state::<Arc<tokio::sync::Mutex<NativePreviewFrameQueue>>>()
             {
@@ -3842,6 +3853,7 @@ pub(crate) fn schedule_lookahead_predecode(
                     * fps)
                     .round() as u64;
                 if target_frame_index < live_frame {
+                    target_frame_index = live_frame;
                     continue;
                 }
             }
@@ -3879,6 +3891,7 @@ pub(crate) fn schedule_lookahead_predecode(
                 {
                     let queue_state = queue.lock().await;
                     if queue_state.contains(&key) {
+                        target_frame_index += 1;
                         continue;
                     }
                 }
@@ -3900,6 +3913,7 @@ pub(crate) fn schedule_lookahead_predecode(
                 crate::native_core::performance::now_ms(),
                 Ordering::Release,
             );
+            target_frame_index += 1;
         }
         worker_finished.store(true, std::sync::atomic::Ordering::Release);
     });
@@ -4285,6 +4299,7 @@ pub(crate) async fn present_native_frame_internal(
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: request.request_id,
             frame_index: request.frame_time.frame_index,
+            phase_id: crate::commands::perf_driver::active_phase_id(),
             presented: false,
             dropped: true,
             audio_position_ticks,
@@ -4504,6 +4519,7 @@ pub(crate) async fn present_native_frame_internal(
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: request.request_id,
             frame_index: request.frame_time.frame_index,
+            phase_id: crate::commands::perf_driver::active_phase_id(),
             presented: false,
             dropped: false,
             audio_position_ticks,
@@ -4551,6 +4567,7 @@ pub(crate) async fn present_native_frame_internal(
             contract_version: NATIVE_CORE_CONTRACT_VERSION,
             request_id: request.request_id,
             frame_index: request.frame_time.frame_index,
+            phase_id: crate::commands::perf_driver::active_phase_id(),
             presented: false,
             dropped: true,
             audio_position_ticks,
@@ -5109,34 +5126,40 @@ pub(crate) async fn present_native_frame_internal(
         frame_processing_us,
     );
 
-    crate::engine::ENGINE_TELEMETRY.record_frame(
-        crate::engine::FrameTelemetry {
-            frame_id: request.frame_time.frame_index,
-            generation: request.generation.unwrap_or(0),
-            project_revision: 1,
-            pts: crate::engine::MediaTime::from_micros(
-                (request.frame_time.ticks.max(0) as u128 * 1_000_000u128
-                    / request.frame_time.timescale.max(1) as u128) as i64,
-            ),
-            outcome: crate::engine::FrameOutcome::PresentedOnTime,
-            demux_us: 1200,
-            decode_us: decode_timings.decode_time_us as u64,
-            decode_queue_wait_us: scheduler_wait_us,
-            surface_acquire_us,
-            surface_wait_us: 0,
-            interop_us: conversion_upload_us,
-            graph_compile_us: 100,
-            graph_execute_us: compose_us,
-            gpu_wait_us: surface_acquire_us,
-            present_wait_us: 50,
-            present_us: submit_present_us,
-            total_frame_ms: request_started_at.elapsed().as_secs_f64() * 1000.0,
-            surface_pool_used: 4,
-            surface_pool_capacity: 16,
-            cache_hit: queue_hit,
-        },
-        Some(&app),
+    let is_playback_frame = matches!(
+        request.mode.as_deref(),
+        Some("playback") | Some("playback-lookahead")
     );
+    if is_playback_frame {
+        crate::engine::ENGINE_TELEMETRY.record_frame(
+            crate::engine::FrameTelemetry {
+                frame_id: request.frame_time.frame_index,
+                generation: request.generation.unwrap_or(0),
+                project_revision: 1,
+                pts: crate::engine::MediaTime::from_micros(
+                    (request.frame_time.ticks.max(0) as u128 * 1_000_000u128
+                        / request.frame_time.timescale.max(1) as u128) as i64,
+                ),
+                outcome: crate::engine::FrameOutcome::PresentedOnTime,
+                demux_us: 1200,
+                decode_us: decode_timings.decode_time_us as u64,
+                decode_queue_wait_us: scheduler_wait_us,
+                surface_acquire_us,
+                surface_wait_us: 0,
+                interop_us: conversion_upload_us,
+                graph_compile_us: 100,
+                graph_execute_us: compose_us,
+                gpu_wait_us: surface_acquire_us,
+                present_wait_us: 50,
+                present_us: submit_present_us,
+                total_frame_ms: request_started_at.elapsed().as_secs_f64() * 1000.0,
+                surface_pool_used: 4,
+                surface_pool_capacity: 16,
+                cache_hit: queue_hit,
+            },
+            Some(&app),
+        );
+    }
 
     let frame_pts = crate::engine::MediaTime::from_micros(
         (request.frame_time.ticks.max(0) as u128 * 1_000_000u128
@@ -5175,6 +5198,7 @@ pub(crate) async fn present_native_frame_internal(
         contract_version: NATIVE_CORE_CONTRACT_VERSION,
         request_id: request.request_id,
         frame_index: request.frame_time.frame_index,
+        phase_id: crate::commands::perf_driver::active_phase_id(),
         presented: true,
         dropped: false,
         audio_position_ticks,

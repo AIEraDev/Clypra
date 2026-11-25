@@ -761,6 +761,7 @@ export interface NativePlaybackStatsPayload {
   playbackCompletions: number;
   playbackSupersessions: number;
   playbackLookaheadMisses: number;
+  phaseId?: string | null;
   nativeState: "playing";
   demandClass: "continuous_playback";
 }
@@ -777,6 +778,9 @@ export interface RuntimeFlagProfile {
 }
 
 export interface NativeDiagnosticPayload {
+  marker?: string;
+  phaseId?: string | null;
+  phaseEvent?: "start" | "end" | "error";
   level?: string;
   source?: string;
   code?: string;
@@ -826,6 +830,26 @@ export function listenForNativePlaybackProgress(
   return listen<{ frameIndex: number; generation?: number }>(
     "clypra://native-playback-progress",
     (event) => onProgress(event.payload),
+  );
+}
+
+/** Listen for feature-gated perf-driver transport requests. */
+export function listenForPerfDriverTransport(
+  onTransport: (transport: { action?: "play" | "pause" }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ action?: "play" | "pause" }>(
+    "clypra://perf-driver-transport",
+    (event) => onTransport(event.payload),
+  );
+}
+
+/** Listen for the feature-gated perf-driver visibility/rAF probe. */
+export function listenForPerfDriverProbe(
+  onProbe: (probe: { probeId?: string; durationMs?: number }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ probeId?: string; durationMs?: number }>(
+    "clypra://perf-driver-probe",
+    (event) => onProbe(event.payload),
   );
 }
 

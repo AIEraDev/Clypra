@@ -144,6 +144,20 @@ describe("TransportAuthority", () => {
       expect(mockProgramContext.play).toHaveBeenCalledTimes(1);
     });
 
+    it("blocks play and togglePlayback when canPlayGuard returns false (e.g. offline media)", () => {
+      mockProgramContext.getState = vi.fn(() => "paused" as any);
+      authority.setCanPlayGuard(() => false);
+
+      authority.play();
+      authority.togglePlayback();
+
+      expect(mockProgramContext.play).not.toHaveBeenCalled();
+
+      authority.setCanPlayGuard(() => true);
+      authority.play();
+      expect(mockProgramContext.play).toHaveBeenCalledTimes(1);
+    });
+
     it("seek delegates to active context", () => {
       authority.seek(5);
       expect(mockProgramContext.seek).toHaveBeenCalledWith(5);
