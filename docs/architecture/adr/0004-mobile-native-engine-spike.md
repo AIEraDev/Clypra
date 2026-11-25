@@ -84,7 +84,11 @@ from the spike merges into the engine until the exit criteria are met.
 | Flutter or React Native + FFI | Rejected. A second UI stack plus video texture plumbing, without removing the native-surface problem. |
 | Capacitor (current) | Rejected. A web shell with no native engine, and frozen. |
 
-### Step 0: extract a Tauri-free engine crate
+### Step 0: extract a Tauri-free engine crate (Refined by ADR-0005)
+
+> [!NOTE]
+> Step 0 is superseded and refined in detail by [ADR-0005: Portable Engine Architecture](0005-portable-engine-architecture.md).
+> Rather than extracting only `wgpu_compositor`, `engine`, and `filmstrip_engine`, ADR-0005 establishes that playback orchestration, the lookahead scheduler, and session state currently in `commands/native_preview/` and `commands/native_playback/` must also be structured into instance-based engine components (`clypra-engine` and `clypra-engine-api`).
 
 Move the compositor, decoder and engine into a new crate with no `tauri`
 dependency. Desktop keeps working through a thin Tauri wrapper that depends on
