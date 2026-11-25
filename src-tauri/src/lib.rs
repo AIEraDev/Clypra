@@ -659,6 +659,8 @@ pub fn run() {
             clear_thumbnail_cache,
             extract_poster_frame_command,
             get_media_metadata,
+            check_file_exists,
+            commands::perf_driver::notify_perf_driver_transport_state,
             decode_image_rgba,
             get_video_render_metadata,
             #[allow(deprecated)]

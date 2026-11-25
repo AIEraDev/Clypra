@@ -52,6 +52,8 @@ pub struct TransferService {
     pub inbox_dir: Arc<parking_lot::RwLock<PathBuf>>,
     /// Theme colors for mobile web UI matching editor theme.
     pub theme_colors: Arc<parking_lot::RwLock<std::collections::HashMap<String, String>>>,
+    /// Authentication token required for staged file access and web hub download.
+    pub hub_token: String,
     /// The actual port that was successfully bound (may differ from
     /// `server_port` if there was a collision).
     pub bound_port: Arc<std::sync::Mutex<u16>>,
@@ -61,6 +63,7 @@ impl TransferService {
     pub fn new() -> Self {
         let port = 53317u16;
         let fingerprint = Uuid::new_v4().to_string();
+        let hub_token = Uuid::new_v4().to_string();
         let mut default_theme = std::collections::HashMap::new();
         default_theme.insert("bg".to_string(), "#0b0e12".to_string());
         default_theme.insert("card".to_string(), "#12171d".to_string());
@@ -90,7 +93,52 @@ impl TransferService {
             device_info: DeviceInfo::new(fingerprint, port),
             inbox_dir: Arc::new(parking_lot::RwLock::new(PathBuf::new())),
             theme_colors: Arc::new(parking_lot::RwLock::new(default_theme)),
+            hub_token,
             bound_port: Arc::new(std::sync::Mutex::new(port)),
+        }
+    }
+
+    /// Returns the active authentication token for staged file downloads.
+    pub fn get_hub_token(&self) -> &str {
+        &self.hub_token
+    }
+
+    /// Verifies if a provided token matches the hub authentication token.
+    pub fn is_token_valid(&self, token: Option<&str>) -> bool {
+        match token {
+            Some(t) => !self.hub_token.is_empty() && t == self.hub_token,
+            None => false,
+        }
+    }
+
+    /// Prunes completed, rejected, cancelled, or excess sessions to prevent memory exhaustion DoS.
+    pub fn prune_stale_sessions(&self) {
+        let max_sessions = 50;
+        let mut to_remove = Vec::new();
+
+        for entry in self.sessions.iter() {
+            let s = entry.value();
+            match s.state {
+                SessionState::Complete | SessionState::Cancelled | SessionState::Rejected => {
+                    to_remove.push(entry.key().clone());
+                }
+                _ => {}
+            }
+        }
+
+        for id in to_remove {
+            self.sessions.remove(&id);
+            self.consent_senders.remove(&id);
+            self.file_tokens.retain(|key, _| !key.starts_with(&id));
+        }
+
+        if self.sessions.len() >= max_sessions {
+            let excess: Vec<String> = self.sessions.iter().take(10).map(|e| e.key().clone()).collect();
+            for id in excess {
+                self.sessions.remove(&id);
+                self.consent_senders.remove(&id);
+                self.file_tokens.retain(|key, _| !key.starts_with(&id));
+            }
         }
     }
 

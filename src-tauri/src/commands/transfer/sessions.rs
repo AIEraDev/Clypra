@@ -50,11 +50,12 @@ pub async fn get_transfer_sessions(app: AppHandle) -> Result<Vec<TransferSession
     Ok(service.sessions.iter().map(|e| e.value().clone()).collect())
 }
 
-/// Returns `"http://{localIp}:{port}"` — useful for manual display and copy.
+/// Returns `"http://{localIp}:{port}/?token={token}"` — useful for manual display and copy.
 #[tauri::command]
 pub async fn get_transfer_server_url(app: AppHandle) -> Result<String, String> {
     let service = get_service(&app)?;
     let ip = local_ip();
     let port = service.get_bound_port();
-    Ok(format!("http://{}:{}", ip, port))
+    let token = service.get_hub_token();
+    Ok(format!("http://{}:{}/?token={}", ip, port, token))
 }

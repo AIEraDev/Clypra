@@ -9,8 +9,8 @@ mod tests;
 
 pub use listener::start;
 pub use network::{
-    generate_qr_svg, get_non_colliding_path, list_network_interfaces, local_ip, select_best_lan_ip,
-    unix_secs,
+    generate_qr_svg, get_non_colliding_path, list_network_interfaces, local_ip, sanitize_filename,
+    select_best_lan_ip, unix_secs,
 };
 pub use template::{render_upload_page, UPLOAD_PAGE};
 pub use types::{

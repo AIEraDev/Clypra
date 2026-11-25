@@ -55,10 +55,15 @@ export class TauriPlatformAdapter implements PlatformInterface {
     const nativePath = toNativePath(path);
     if (isExternalOrDataUrl(nativePath)) return true;
     try {
-      const { exists } = await import("@tauri-apps/plugin-fs");
-      return await exists(nativePath);
+      const { invoke } = await import("@tauri-apps/api/core");
+      return await invoke<boolean>("check_file_exists", { path: nativePath });
     } catch {
-      return false;
+      try {
+        const { exists } = await import("@tauri-apps/plugin-fs");
+        return await exists(nativePath);
+      } catch {
+        return false;
+      }
     }
   }
 

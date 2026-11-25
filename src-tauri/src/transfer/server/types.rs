@@ -50,6 +50,23 @@ pub struct UploadQuery {
     pub token: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct StagedFileQuery {
+    #[serde(default)]
+    pub token: Option<String>,
+}
+
+/// Safe public representation of staged files without internal filesystem paths.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StagedFileDto {
+    pub id: String,
+    pub file_name: String,
+    pub size: u64,
+    pub mime_type: String,
+    pub created_at: u64,
+}
+
 // ── Payloads emitted as Tauri events ─────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize)]

@@ -1,10 +1,11 @@
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::routing::{get, post};
 use axum::Router;
 use tauri::AppHandle;
 use tokio::net::TcpListener;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 
 use crate::transfer::TransferService;
 
@@ -14,10 +15,24 @@ use super::types::AppState;
 /// Build and start the Axum HTTP server. Tries ports 53317, 53318, 53319
 /// before giving up. Returns the bound port on success.
 pub async fn start(service: Arc<TransferService>, app_handle: AppHandle) -> Result<u16, String> {
+    // Restrict CORS origins to local/Tauri origins only. Wildcard (*) is intentionally
+    // forbidden to prevent browser-based cross-origin data exfiltration from external websites.
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin([
+            "http://localhost".parse().unwrap(),
+            "http://127.0.0.1".parse().unwrap(),
+            "tauri://localhost".parse().unwrap(),
+            "http://tauri.localhost".parse().unwrap(),
+        ])
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+        ]);
 
     let state = AppState {
         service: service.clone(),
@@ -53,9 +68,12 @@ pub async fn start(service: Arc<TransferService>, app_handle: AppHandle) -> Resu
                 log::info!("[Transfer] HTTP server listening on {}", addr);
                 let svc_running = service.server_running.clone();
                 tokio::spawn(async move {
-                    axum::serve(listener, router)
-                        .await
-                        .unwrap_or_else(|e| log::error!("[Transfer] Server error: {e}"));
+                    axum::serve(
+                        listener,
+                        router.into_make_service_with_connect_info::<SocketAddr>(),
+                    )
+                    .await
+                    .unwrap_or_else(|e| log::error!("[Transfer] Server error: {e}"));
                     svc_running.store(false, std::sync::atomic::Ordering::Relaxed);
                 });
                 return Ok(port);

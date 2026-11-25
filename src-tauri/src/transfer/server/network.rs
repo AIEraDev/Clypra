@@ -139,14 +139,41 @@ pub fn generate_qr_svg(content: &str) -> Result<String, String> {
     Ok(svg)
 }
 
+/// Sanitizes an untrusted filename received from the network to prevent
+/// path traversal, absolute path overwrites, or escaping the target directory.
+pub fn sanitize_filename(raw_name: &str) -> String {
+    let trimmed = raw_name.trim();
+
+    // Split on both Unix and Windows path separators to extract the terminal segment
+    let base_name = trimmed
+        .rsplit(['/', '\\'])
+        .find(|segment| !segment.is_empty() && *segment != "." && *segment != "..")
+        .unwrap_or("upload.bin");
+
+    // Filter out control characters, null bytes, and path separators
+    let sanitized: String = base_name
+        .chars()
+        .filter(|c| !c.is_control() && *c != '/' && *c != '\\' && *c != '\0')
+        .collect();
+
+    let safe_name = sanitized.trim();
+    if safe_name.is_empty() || safe_name == "." || safe_name == ".." {
+        "upload.bin".to_string()
+    } else {
+        safe_name.to_string()
+    }
+}
+
 /// Generates a non-colliding file path inside `dir` for `file_name` by appending `(1)`, `(2)`, etc.
+/// Automatically sanitizes `file_name` so the resulting path cannot escape `dir`.
 pub fn get_non_colliding_path(dir: &Path, file_name: &str) -> PathBuf {
-    let base_path = dir.join(file_name);
+    let safe_file_name = sanitize_filename(file_name);
+    let base_path = dir.join(&safe_file_name);
     if !base_path.exists() {
         return base_path;
     }
 
-    let p = Path::new(file_name);
+    let p = Path::new(&safe_file_name);
     let stem = p.file_stem().and_then(|s| s.to_str()).unwrap_or("file");
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("");
 

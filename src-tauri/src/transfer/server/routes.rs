@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use std::net::SocketAddr;
 
 use axum::body::Body;
-use axum::extract::{Path, Query, State};
+use axum::extract::{ConnectInfo, Path, Query, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -14,13 +15,13 @@ use uuid::Uuid;
 
 use crate::transfer::device::DiscoveredDevice;
 use crate::transfer::session::{IncomingFile, SessionState, TransferSession};
-use crate::transfer::StagedFile;
 
-use super::network::{get_non_colliding_path, unix_secs};
+use super::network::{get_non_colliding_path, sanitize_filename, unix_secs};
 use super::template::render_upload_page;
 use super::types::{
     AppState, CancelledEventPayload, CompleteEventPayload, IncomingEventPayload, IncomingFileBrief,
-    PrepareUploadRequest, ProgressEventPayload, SessionQuery, UploadQuery,
+    PrepareUploadRequest, ProgressEventPayload, SessionQuery, StagedFileDto, StagedFileQuery,
+    UploadQuery,
 };
 
 pub async fn get_upload_page(State(state): State<AppState>) -> impl IntoResponse {
@@ -46,7 +47,7 @@ pub async fn get_localsend_info(State(state): State<AppState>) -> Json<Value> {
 /// LocalSend v2 peer registration endpoint.
 pub async fn post_register(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     body: Option<Json<Value>>,
 ) -> Json<Value> {
     if let Some(Json(val)) = body {
@@ -55,23 +56,26 @@ pub async fn post_register(
             val.get("fingerprint").and_then(|v| v.as_str()),
         ) {
             if fingerprint != state.service.device_info.fingerprint {
-                let sender_ip = headers
-                    .get("x-forwarded-for")
-                    .and_then(|v| v.to_str().ok())
-                    .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string())
-                    .unwrap_or_else(|| "unknown".to_string());
+                // Peer IP is strictly derived from the genuine TCP socket peer address,
+                // never from client-supplied proxy headers (e.g. X-Forwarded-For) to prevent SSRF.
+                let sender_ip = peer_addr.ip().to_string();
 
-                let port = val.get("port").and_then(|v| v.as_u64()).unwrap_or(53317) as u16;
+                let port = val
+                    .get("port")
+                    .and_then(|v| v.as_u64())
+                    .filter(|&p| p > 0 && p <= 65535)
+                    .unwrap_or(53317) as u16;
                 let device_type = val
                     .get("deviceType")
                     .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
+                    .map(|s| s.chars().take(32).collect::<String>());
+                let safe_alias = alias.chars().take(64).collect::<String>();
 
                 let now = unix_secs();
                 state.service.discovered_devices.insert(
                     fingerprint.to_string(),
                     DiscoveredDevice {
-                        alias: alias.to_string(),
+                        alias: safe_alias,
                         device_type,
                         ip: sender_ip,
                         port,
@@ -85,23 +89,56 @@ pub async fn post_register(
     Json(serde_json::to_value(&state.service.device_info).unwrap_or_else(|_| json!({})))
 }
 
-/// Returns list of files staged on laptop for mobile download.
-pub async fn get_staged_files(State(state): State<AppState>) -> Json<Vec<StagedFile>> {
-    let mut files: Vec<StagedFile> = state
+fn is_authorized(headers: &HeaderMap, query_token: Option<&str>, service: &crate::transfer::TransferService) -> bool {
+    let token = query_token.or_else(|| {
+        headers
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|h| h.strip_prefix("Bearer ").or(Some(h)))
+    });
+    service.is_token_valid(token)
+}
+
+/// Returns list of files staged on laptop for mobile download (internal file paths redacted).
+pub async fn get_staged_files(
+    State(state): State<AppState>,
+    Query(query): Query<StagedFileQuery>,
+    headers: HeaderMap,
+) -> Response {
+    if !is_authorized(&headers, query.token.as_deref(), &state.service) {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
+    let mut files: Vec<StagedFileDto> = state
         .service
         .staged_files
         .iter()
-        .map(|e| e.value().clone())
+        .map(|e| {
+            let f = e.value();
+            StagedFileDto {
+                id: f.id.clone(),
+                file_name: f.file_name.clone(),
+                size: f.size,
+                mime_type: f.mime_type.clone(),
+                created_at: f.created_at,
+            }
+        })
         .collect();
     files.sort_by_key(|f| std::cmp::Reverse(f.created_at));
-    Json(files)
+    Json(files).into_response()
 }
 
 /// Streams a staged file to the mobile device for direct download.
 pub async fn download_staged_file(
     State(state): State<AppState>,
     Path(file_id): Path<String>,
+    Query(query): Query<StagedFileQuery>,
+    headers: HeaderMap,
 ) -> Response {
+    if !is_authorized(&headers, query.token.as_deref(), &state.service) {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
     let file = match state.service.staged_files.get(&file_id) {
         Some(f) => f.clone(),
         None => return (StatusCode::NOT_FOUND, "File not found in staged list").into_response(),
@@ -151,7 +188,16 @@ pub async fn download_staged_file(
 }
 
 /// Streams a staged file to the mobile device for inline viewing / playing in browser without download prompt.
-pub async fn view_staged_file(State(state): State<AppState>, Path(file_id): Path<String>) -> Response {
+pub async fn view_staged_file(
+    State(state): State<AppState>,
+    Path(file_id): Path<String>,
+    Query(query): Query<StagedFileQuery>,
+    headers: HeaderMap,
+) -> Response {
+    if !is_authorized(&headers, query.token.as_deref(), &state.service) {
+        return (StatusCode::UNAUTHORIZED, "Unauthorized").into_response();
+    }
+
     let file = match state.service.staged_files.get(&file_id) {
         Some(f) => f.clone(),
         None => return (StatusCode::NOT_FOUND, "File not found in staged list").into_response(),
@@ -199,34 +245,61 @@ pub async fn view_staged_file(State(state): State<AppState>, Path(file_id): Path
 
 pub async fn post_prepare_upload(
     State(state): State<AppState>,
-    headers: HeaderMap,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     Json(body): Json<PrepareUploadRequest>,
 ) -> Response {
-    let sender_ip = headers
-        .get("x-forwarded-for")
-        .and_then(|v| v.to_str().ok())
-        .map(|s| s.split(',').next().unwrap_or("unknown").trim().to_string())
-        .unwrap_or_else(|| "unknown".to_string());
+    if body.files.is_empty() {
+        return (StatusCode::BAD_REQUEST, "File list cannot be empty").into_response();
+    }
+    if body.files.len() > 100 {
+        return (StatusCode::BAD_REQUEST, "Too many files in transfer request (max 100)").into_response();
+    }
+
+    state.service.prune_stale_sessions();
+
+    let pending_count = state
+        .service
+        .sessions
+        .iter()
+        .filter(|s| matches!(s.state, SessionState::Pending))
+        .count();
+    if pending_count >= 5 {
+        return (
+            StatusCode::TOO_MANY_REQUESTS,
+            "Too many pending transfer requests",
+        )
+            .into_response();
+    }
+
+    // Peer IP is strictly derived from the genuine TCP socket peer address,
+    // never from client-supplied proxy headers (e.g. X-Forwarded-For) to prevent SSRF.
+    let sender_ip = peer_addr.ip().to_string();
 
     let session_id = Uuid::new_v4().to_string();
 
     let mut files: Vec<IncomingFile> = body
         .files
         .values()
-        .map(|fm| IncomingFile {
-            id: fm.id.clone(),
-            file_name: fm.file_name.clone(),
-            size: fm.size,
-            file_type: fm.file_type.clone(),
+        .map(|fm| {
+            let truncated_id = fm.id.chars().take(64).collect::<String>();
+            let safe_name = sanitize_filename(&fm.file_name);
+            let truncated_name = safe_name.chars().take(255).collect::<String>();
+            IncomingFile {
+                id: truncated_id,
+                file_name: truncated_name,
+                size: fm.size,
+                file_type: fm.file_type.chars().take(64).collect::<String>(),
+            }
         })
         .collect();
     files.sort_by(|a, b| a.id.cmp(&b.id));
 
     let total_bytes: u64 = files.iter().map(|f| f.size).sum();
+    let safe_alias = body.info.alias.chars().take(64).collect::<String>();
 
     let session = TransferSession {
         session_id: session_id.clone(),
-        sender_alias: body.info.alias.clone(),
+        sender_alias: safe_alias.clone(),
         sender_ip: sender_ip.clone(),
         state: SessionState::Pending,
         files: files.clone(),
@@ -251,7 +324,7 @@ pub async fn post_prepare_upload(
         "clypra://transfer-incoming",
         IncomingEventPayload {
             session_id: session_id.clone(),
-            sender_alias: body.info.alias.clone(),
+            sender_alias: safe_alias,
             files: brief_files,
         },
     );
@@ -264,9 +337,7 @@ pub async fn post_prepare_upload(
     state.service.consent_senders.remove(&session_id);
 
     if !accepted {
-        if let Some(mut s) = state.service.sessions.get_mut(&session_id) {
-            s.state = SessionState::Rejected;
-        }
+        state.service.sessions.remove(&session_id);
         return (StatusCode::FORBIDDEN, Json(json!({"message": "Declined"}))).into_response();
     }
 
@@ -342,6 +413,14 @@ pub async fn post_upload(
             .into_response();
     }
     let dest_path = get_non_colliding_path(&dest_dir, &file_name);
+    if !dest_path.starts_with(&dest_dir) {
+        log::error!(
+            "[Transfer] Path traversal rejected: {:?} is not within inbox {:?}",
+            dest_path,
+            dest_dir
+        );
+        return (StatusCode::BAD_REQUEST, "Invalid file destination").into_response();
+    }
 
     let mut file = match tokio::fs::File::create(&dest_path).await {
         Ok(f) => f,
@@ -360,8 +439,25 @@ pub async fn post_upload(
     while let Some(chunk) = stream.next().await {
         match chunk {
             Ok(data) => {
+                if bytes_received + data.len() as u64 > total_file_bytes {
+                    log::error!(
+                        "[Transfer] Upload size exceeded declared size: {} > {}",
+                        bytes_received + data.len() as u64,
+                        total_file_bytes
+                    );
+                    drop(file);
+                    let _ = tokio::fs::remove_file(&dest_path).await;
+                    return (
+                        StatusCode::PAYLOAD_TOO_LARGE,
+                        "Upload body exceeded declared file size",
+                    )
+                        .into_response();
+                }
+
                 if let Err(e) = file.write_all(&data).await {
                     log::error!("[Transfer] Write error: {e}");
+                    drop(file);
+                    let _ = tokio::fs::remove_file(&dest_path).await;
                     return (StatusCode::INTERNAL_SERVER_ERROR, "Write failed").into_response();
                 }
                 bytes_received += data.len() as u64;
@@ -382,9 +478,22 @@ pub async fn post_upload(
             }
             Err(e) => {
                 log::error!("[Transfer] Body read error: {e}");
+                drop(file);
+                let _ = tokio::fs::remove_file(&dest_path).await;
                 return (StatusCode::BAD_REQUEST, "Body read error").into_response();
             }
         }
+    }
+
+    if bytes_received != total_file_bytes {
+        log::error!(
+            "[Transfer] Incomplete upload: received {} bytes, expected {}",
+            bytes_received,
+            total_file_bytes
+        );
+        drop(file);
+        let _ = tokio::fs::remove_file(&dest_path).await;
+        return (StatusCode::BAD_REQUEST, "Incomplete upload body").into_response();
     }
 
     if let Err(e) = file.flush().await {
@@ -410,6 +519,7 @@ pub async fn post_upload(
         if let Some(mut s) = state.service.sessions.get_mut(&sid) {
             s.state = SessionState::Complete;
         }
+        state.service.prune_stale_sessions();
         let _ = state.app_handle.emit(
             "clypra://transfer-complete",
             CompleteEventPayload {

@@ -269,10 +269,12 @@ pub const UPLOAD_PAGE: &str = r#"<!DOCTYPE html>
   const downloadList = document.getElementById('downloadList');
   const emptyDownload = document.getElementById('emptyDownload');
   const downloadTipNote = document.getElementById('downloadTipNote');
+  const hubToken = new URLSearchParams(window.location.search).get('token') || '';
 
   async function loadStagedFiles() {
     try {
-      const res = await fetch('/api/transfer/files');
+      const tokenParam = hubToken ? `?token=${encodeURIComponent(hubToken)}` : '';
+      const res = await fetch('/api/transfer/files' + tokenParam);
       if (!res.ok) return;
       const files = await res.json();
       if (!Array.isArray(files) || files.length === 0) {
@@ -296,11 +298,11 @@ pub const UPLOAD_PAGE: &str = r#"<!DOCTYPE html>
             </div>
             <div style="display:flex; gap:6px; align-items:center;">
               ${(isVideo || isImg) ? `
-                <a href="/api/transfer/view/${encodeURIComponent(f.id)}" target="_blank" class="btn-download" style="background:var(--card-inner); border:1px solid var(--border); color:var(--text); text-decoration:none; padding:7px 10px;">
+                <a href="/api/transfer/view/${encodeURIComponent(f.id)}${tokenParam}" target="_blank" class="btn-download" style="background:var(--card-inner); border:1px solid var(--border); color:var(--text); text-decoration:none; padding:7px 10px;">
                   View 👁️
                 </a>
               ` : ''}
-              <a href="/api/transfer/download/${encodeURIComponent(f.id)}" download="${f.fileName}" class="btn-download" style="text-decoration:none; padding:7px 10px;">
+              <a href="/api/transfer/download/${encodeURIComponent(f.id)}${tokenParam}" download="${f.fileName}" class="btn-download" style="text-decoration:none; padding:7px 10px;">
                 Save ⬇️
               </a>
             </div>
