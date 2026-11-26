@@ -116,6 +116,57 @@ pub enum DxgiFailureReason {
     SynchronizationFailure,
 }
 
+impl DxgiFailureReason {
+    /// Total number of [`DxgiFailureReason`] variants.
+    pub const COUNT: usize = 10;
+
+    /// Canonical ordered list of all [`DxgiFailureReason`] variants.
+    pub const ALL: [Self; Self::COUNT] = [
+        Self::ImportFailed,
+        Self::InvalidTexture,
+        Self::UnsupportedFormat,
+        Self::WrongArraySlice,
+        Self::DeviceLost,
+        Self::SurfaceCreationFailed,
+        Self::DimensionMismatch,
+        Self::AdapterMismatchForCurrentImportPath,
+        Self::UnsupportedResourceConfiguration,
+        Self::SynchronizationFailure,
+    ];
+
+    /// Dense index in `0..Self::COUNT` for fixed-array atomic counters.
+    pub const fn as_index(self) -> usize {
+        match self {
+            Self::ImportFailed => 0,
+            Self::InvalidTexture => 1,
+            Self::UnsupportedFormat => 2,
+            Self::WrongArraySlice => 3,
+            Self::DeviceLost => 4,
+            Self::SurfaceCreationFailed => 5,
+            Self::DimensionMismatch => 6,
+            Self::AdapterMismatchForCurrentImportPath => 7,
+            Self::UnsupportedResourceConfiguration => 8,
+            Self::SynchronizationFailure => 9,
+        }
+    }
+
+    /// Stable snake_case wire key for telemetry payloads.
+    pub const fn wire_name(self) -> &'static str {
+        match self {
+            Self::ImportFailed => "import_failed",
+            Self::InvalidTexture => "invalid_texture",
+            Self::UnsupportedFormat => "unsupported_format",
+            Self::WrongArraySlice => "wrong_array_slice",
+            Self::DeviceLost => "device_lost",
+            Self::SurfaceCreationFailed => "surface_creation_failed",
+            Self::DimensionMismatch => "dimension_mismatch",
+            Self::AdapterMismatchForCurrentImportPath => "adapter_mismatch",
+            Self::UnsupportedResourceConfiguration => "unsupported_resource_configuration",
+            Self::SynchronizationFailure => "synchronization_failure",
+        }
+    }
+}
+
 impl std::fmt::Display for DxgiFailureReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {

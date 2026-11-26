@@ -24,6 +24,11 @@ pub use render_path::{
     PreviewRenderError,
 };
 
+pub mod dxgi_counters;
+pub use dxgi_counters::{
+    DxgiCounters, DxgiCountersSnapshot, DXGI_COUNTERS,
+};
+
 pub mod frame_resource;
 pub use frame_resource::{
     ColorMatrix, ColorPrimaries, ColorRange, CpuFrame, FrameColorInfo, FrameResource,
