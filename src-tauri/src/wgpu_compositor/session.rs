@@ -67,7 +67,19 @@ impl NativePreviewSession {
         let dxgi_state = if gpu.capabilities.zero_copy_available() {
             DxgiImportState::Unknown
         } else {
-            crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
+            let reason = crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::CapabilityUnavailable;
+            crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
+                reason,
+                crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
+                    codec: None,
+                    bit_depth: None,
+                    source_width: None,
+                    source_height: None,
+                    hw_device_type: Some("d3d11va".to_string()),
+                    latched_at_ms: crate::native_core::performance::now_ms(),
+                    latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(reason),
+                },
+            );
             DxgiImportState::Disabled {
                 reason: DisableReason::UnsupportedFeature,
             }

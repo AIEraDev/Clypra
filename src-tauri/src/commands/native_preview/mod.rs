@@ -4738,18 +4738,32 @@ pub(crate) async fn present_native_frame_internal(
                                         log::warn!(
                                             "[NativePreviewSession] render_nv12_from_imported_texture failed: {render_error:?}"
                                         );
-                                        match render_error {
+                                        let latch_reason = match render_error {
                                             crate::wgpu_compositor::PreviewRenderError::UnsupportedFeature(_) => {
                                                 session.mark_dxgi_disabled(crate::wgpu_compositor::DisableReason::UnsupportedFeature);
+                                                crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::UnsupportedFeature
                                             }
                                             crate::wgpu_compositor::PreviewRenderError::DimensionMismatch { .. } => {
                                                 session.mark_dxgi_failed(crate::wgpu_compositor::DxgiFailureReason::DimensionMismatch);
+                                                crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::DimensionMismatch
                                             }
                                             _ => {
                                                 session.mark_dxgi_failed(crate::wgpu_compositor::DxgiFailureReason::ImportFailed);
+                                                crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::ImportFailed
                                             }
-                                        }
-                                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
+                                        };
+                                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
+                                            latch_reason,
+                                            crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
+                                                codec: None,
+                                                bit_depth: None,
+                                                source_width: Some(*width),
+                                                source_height: Some(*height),
+                                                hw_device_type: Some("d3d11va".to_string()),
+                                                latched_at_ms: crate::native_core::performance::now_ms(),
+                                                latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(latch_reason),
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -4758,7 +4772,19 @@ pub(crate) async fn present_native_frame_internal(
                                     "[NativePreviewSession] import_into_wgpu failed: {reason:?}"
                                 );
                                 session.mark_dxgi_failed(reason);
-                                crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
+                                let latch_reason = crate::wgpu_compositor::adapter_selector::latch_reason_for_dxgi_failure(reason);
+                                crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
+                                    latch_reason,
+                                    crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
+                                        codec: None,
+                                        bit_depth: None,
+                                        source_width: Some(*width),
+                                        source_height: Some(*height),
+                                        hw_device_type: Some("d3d11va".to_string()),
+                                        latched_at_ms: crate::native_core::performance::now_ms(),
+                                        latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(latch_reason),
+                                    },
+                                );
                             }
                         }
                     }
@@ -4798,7 +4824,19 @@ pub(crate) async fn present_native_frame_internal(
                         }
                     }
                     None => {
-                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
+                        let latch_reason = crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::NoCpuPlanes;
+                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
+                            latch_reason,
+                            crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
+                                codec: None,
+                                bit_depth: None,
+                                source_width: Some(*width),
+                                source_height: Some(*height),
+                                hw_device_type: Some(planes.transfer_path().as_str().to_string()),
+                                latched_at_ms: crate::native_core::performance::now_ms(),
+                                latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(latch_reason),
+                            },
+                        );
                         return Err(NativePresentationError::Pipeline(format!(
                             "DXGI zero-copy texture import failed and no CPU planes cached (decoded path: {})",
                             planes.transfer_path().as_str()
