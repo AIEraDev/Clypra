@@ -15,8 +15,12 @@
 
 pub mod benchmark;
 pub mod clock;
+// The legacy decoder-planning scaffold is exercised by the engine unit tests,
+// but the production playback path uses `filmstrip_engine::decoder`.
+#[cfg(test)]
 pub mod decoder;
 pub mod decode_policy;
+#[cfg(test)]
 pub mod diagnostic;
 pub mod frame;
 pub mod graph;
@@ -59,12 +63,14 @@ pub use benchmark::{
     HardwareBenchmarkRunner, MachineIdentity, PlaybackSummary, StartupMetrics, TransferMetrics,
 };
 pub use clock::{ClockMode, EngineClock, PlaybackClock};
+#[cfg(test)]
 pub use decoder::{
     D3D11VADecoderBackend, D3D12VADecoderBackend, DecodeUsage, DecoderCapabilities, DecoderError,
     DecoderPlanner, DecoderRequest, DecoderSession, DecoderSurfacePool, DecoderTelemetry,
     EncodedPacket, RenderSurface, SeekTarget, SoftwareFFmpegBackend, StreamProfile, SurfaceBridge,
     SurfacePoolConfig, SurfaceState, VideoDecodeCapability, VideoDecoderBackend,
 };
+#[cfg(test)]
 pub use diagnostic::{HardwareRealityReport, HardwareRealityRunner};
 pub use frame::{ColorMetadata, VideoFrame};
 pub use graph::{
