@@ -165,6 +165,30 @@ pub fn latch_kind_for(reason: DxgiLatchReasonCode) -> String {
     }
 }
 
+/// Pure mapping from a per-attempt [`DxgiFailureReason`] to the telemetry
+/// [`DxgiLatchReasonCode`] recorded when the runtime latch trips.
+pub const fn latch_reason_for_dxgi_failure(
+    reason: super::render_path::DxgiFailureReason,
+) -> DxgiLatchReasonCode {
+    use super::render_path::DxgiFailureReason;
+    match reason {
+        DxgiFailureReason::ImportFailed => DxgiLatchReasonCode::ImportFailed,
+        DxgiFailureReason::InvalidTexture => DxgiLatchReasonCode::InvalidTexture,
+        DxgiFailureReason::UnsupportedFormat => DxgiLatchReasonCode::FormatUnsupportedP010,
+        DxgiFailureReason::WrongArraySlice => DxgiLatchReasonCode::WrongArraySlice,
+        DxgiFailureReason::DeviceLost => DxgiLatchReasonCode::DeviceLost,
+        DxgiFailureReason::SurfaceCreationFailed => DxgiLatchReasonCode::SurfaceCreationFailed,
+        DxgiFailureReason::DimensionMismatch => DxgiLatchReasonCode::DimensionMismatch,
+        DxgiFailureReason::AdapterMismatchForCurrentImportPath => {
+            DxgiLatchReasonCode::CapabilityUnavailable
+        }
+        DxgiFailureReason::UnsupportedResourceConfiguration => {
+            DxgiLatchReasonCode::UnsupportedFeature
+        }
+        DxgiFailureReason::SynchronizationFailure => DxgiLatchReasonCode::ImportFailed,
+    }
+}
+
 /// Extended variant: also stores per-frame context at the latch site.
 /// Call this from decode paths that have codec/format/resolution available.
 pub fn mark_dxgi_runtime_disabled_with_context(
@@ -617,6 +641,49 @@ mod tests {
                 display, json_code,
                 "Variant #{i}: Rust Display '{display}' != JSON '{json_code}'"
             );
+        }
+    }
+
+    #[test]
+    fn dxgi_failure_reasons_map_to_specific_latch_reasons() {
+        use super::super::render_path::DxgiFailureReason;
+
+        let expected = [
+            (DxgiFailureReason::ImportFailed, DxgiLatchReasonCode::ImportFailed),
+            (DxgiFailureReason::InvalidTexture, DxgiLatchReasonCode::InvalidTexture),
+            (
+                DxgiFailureReason::UnsupportedFormat,
+                DxgiLatchReasonCode::FormatUnsupportedP010,
+            ),
+            (
+                DxgiFailureReason::WrongArraySlice,
+                DxgiLatchReasonCode::WrongArraySlice,
+            ),
+            (DxgiFailureReason::DeviceLost, DxgiLatchReasonCode::DeviceLost),
+            (
+                DxgiFailureReason::SurfaceCreationFailed,
+                DxgiLatchReasonCode::SurfaceCreationFailed,
+            ),
+            (
+                DxgiFailureReason::DimensionMismatch,
+                DxgiLatchReasonCode::DimensionMismatch,
+            ),
+            (
+                DxgiFailureReason::AdapterMismatchForCurrentImportPath,
+                DxgiLatchReasonCode::CapabilityUnavailable,
+            ),
+            (
+                DxgiFailureReason::UnsupportedResourceConfiguration,
+                DxgiLatchReasonCode::UnsupportedFeature,
+            ),
+            (
+                DxgiFailureReason::SynchronizationFailure,
+                DxgiLatchReasonCode::ImportFailed,
+            ),
+        ];
+
+        for (failure, latch) in expected {
+            assert_eq!(latch_reason_for_dxgi_failure(failure), latch);
         }
     }
 
