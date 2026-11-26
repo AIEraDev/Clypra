@@ -4772,6 +4772,8 @@ pub(crate) async fn present_native_frame_internal(
                 }
                 None => match planes.cpu_planes() {
                     Some((y_plane, uv_plane)) => {
+                        #[cfg(target_os = "windows")]
+                        crate::wgpu_compositor::dxgi_counters::DXGI_COUNTERS.record_cpu_fallback();
                         frame_transfer_paths.push(FrameTransferPath::CpuNv12);
                         let (tex_w, tex_h);
                         if *source_rotation != 0 {
