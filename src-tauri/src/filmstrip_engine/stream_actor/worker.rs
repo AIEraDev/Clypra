@@ -241,6 +241,7 @@ impl StreamDecoderActor {
         }
 
         for step in 1..=lookahead_steps {
+            crate::wgpu_compositor::record_lookahead_depth(step as u64);
             // Check if a real job arrived
             match self.urgent_rx.try_recv() {
                 Ok(urgent_job) => return Some(urgent_job),
