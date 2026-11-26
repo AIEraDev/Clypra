@@ -35,6 +35,9 @@ pub use dxgi_hazards::{
     DxgiHazardSnapshot,
 };
 
+pub mod dxgi_fault_injection;
+pub use dxgi_fault_injection::inject_synthetic_dxgi_observations;
+
 pub mod frame_resource;
 pub use frame_resource::{
     ColorMatrix, ColorPrimaries, ColorRange, CpuFrame, FrameColorInfo, FrameResource,
