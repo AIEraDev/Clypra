@@ -500,7 +500,7 @@ pub fn import_into_wgpu(
                 texture,
                 y_view,
                 uv_view,
-                keyed_mutex,
+                has_keyed_mutex: matches!(keyed_mutex, KeyedMutexObservation::Present),
             })
         })
     };
