@@ -25,6 +25,21 @@ struct HazardDetector {
     snapshot: DxgiHazardSnapshot,
 }
 
+/// One registration for an underlying DXGI texture slice.
+///
+/// Duplicated NT handles share this guard through `Arc`; the detector is
+/// released only when the last handle clone is dropped.
+pub struct DxgiSurfaceOwnership {
+    identity_hash: u64,
+    array_index: u32,
+}
+
+impl Drop for DxgiSurfaceOwnership {
+    fn drop(&mut self) {
+        release_surface(self.identity_hash, self.array_index);
+    }
+}
+
 static DETECTOR: OnceLock<Mutex<HazardDetector>> = OnceLock::new();
 static SESSION_SEED: AtomicU64 = AtomicU64::new(1);
 
@@ -44,14 +59,12 @@ pub fn hash_texture_identity(raw_identity: usize) -> u64 {
 }
 
 /// Observe one newly owned `(texture identity hash, array index)` pair.
-pub fn register_surface(identity_hash: u64, array_index: u32) {
+pub fn register_surface(identity_hash: u64, array_index: u32) -> DxgiSurfaceOwnership {
     if let Ok(mut detector) = detector().lock() {
         let key = (identity_hash, array_index);
         if detector.outstanding.contains_key(&key) {
-            detector.snapshot.slice_reuse_in_flight = detector
-                .snapshot
-                .slice_reuse_in_flight
-                .saturating_add(1);
+            detector.snapshot.slice_reuse_in_flight =
+                detector.snapshot.slice_reuse_in_flight.saturating_add(1);
         }
         *detector.outstanding.entry(key).or_default() += 1;
         detector.total_outstanding = detector.total_outstanding.saturating_add(1);
@@ -60,6 +73,10 @@ pub fn register_surface(identity_hash: u64, array_index: u32) {
             .handle_outstanding_max
             .max(detector.total_outstanding);
     }
+    DxgiSurfaceOwnership {
+        identity_hash,
+        array_index,
+    }
 }
 
 /// Observe release of one previously registered ownership unit.
@@ -67,13 +84,27 @@ pub fn release_surface(identity_hash: u64, array_index: u32) {
     if let Ok(mut detector) = detector().lock() {
         let key = (identity_hash, array_index);
         if let Some(count) = detector.outstanding.get_mut(&key) {
-            *count -= 1;
+            *count = count.saturating_sub(1);
             if *count == 0 {
                 detector.outstanding.remove(&key);
             }
             detector.total_outstanding = detector.total_outstanding.saturating_sub(1);
         }
     }
+}
+
+#[cfg(test)]
+fn outstanding_count(identity_hash: u64, array_index: u32) -> u64 {
+    detector()
+        .lock()
+        .ok()
+        .and_then(|detector| {
+            detector
+                .outstanding
+                .get(&(identity_hash, array_index))
+                .copied()
+        })
+        .unwrap_or(0)
 }
 
 /// Record the observed lookahead step without changing the lookahead policy.
@@ -101,13 +132,33 @@ pub fn reset() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn shared_surface_ownership_releases_only_after_last_duplicate_drops() {
+        let _test_guard = TEST_LOCK.lock().expect("DXGI hazard test lock");
+        reset();
+        let identity = hash_texture_identity(0x5678);
+        let ownership = Arc::new(register_surface(identity, 4));
+        let duplicate = Arc::clone(&ownership);
+
+        drop(duplicate);
+        assert_eq!(outstanding_count(identity, 4), 1);
+
+        drop(ownership);
+        assert_eq!(outstanding_count(identity, 4), 0);
+        reset();
+    }
 
     #[test]
     fn detects_reuse_while_slice_is_still_outstanding_and_releases_cleanly() {
+        let _test_guard = TEST_LOCK.lock().expect("DXGI hazard test lock");
         reset();
         let identity = hash_texture_identity(0x1234);
-        register_surface(identity, 3);
-        register_surface(identity, 3);
+        let first = register_surface(identity, 3);
+        let second = register_surface(identity, 3);
         record_lookahead_depth(4);
 
         let during = snapshot();
@@ -115,8 +166,8 @@ mod tests {
         assert_eq!(during.handle_outstanding_max, 2);
         assert_eq!(during.lookahead_depth_max, 4);
 
-        release_surface(identity, 3);
-        release_surface(identity, 3);
+        drop(second);
+        drop(first);
         assert_eq!(snapshot().handle_outstanding_max, 2);
         reset();
         assert_eq!(snapshot(), DxgiHazardSnapshot::default());

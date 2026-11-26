@@ -26,7 +26,7 @@ pub use render_path::{
 
 pub mod dxgi_counters;
 pub use dxgi_counters::{
-    DxgiCounters, DxgiCountersSnapshot, DXGI_COUNTERS,
+    DxgiCounters, DxgiCountersSnapshot, KeyedMutexObservation, DXGI_COUNTERS,
 };
 
 pub mod dxgi_hazards;

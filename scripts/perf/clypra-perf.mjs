@@ -316,6 +316,24 @@ export function lintRecords(records, options = {}) {
         addError(errors, record.line, "invalid-windows-video-payload", `windows-video-path ${field} must be an object`);
       }
     }
+    const dxgiCounters = asObject(payload.dxgiCounters);
+    if (dxgiCounters) {
+      const keyedMutexFields = [
+        "keyedMutexPresent",
+        "keyedMutexAbsent",
+        "keyedMutexUnprobed",
+      ];
+      if (keyedMutexFields.some((field) => !Number.isInteger(dxgiCounters[field]) || dxgiCounters[field] < 0)) {
+        addError(errors, record.line, "invalid-windows-keyed-mutex-counters", "keyed-mutex counters must be non-negative integers");
+      } else if (
+        dxgiCounters.keyedMutexPresent +
+          dxgiCounters.keyedMutexAbsent +
+          dxgiCounters.keyedMutexUnprobed !==
+        dxgiCounters.attempts
+      ) {
+        addError(errors, record.line, "windows-keyed-mutex-counter-mismatch", "present + absent + unprobed keyed-mutex observations must equal attempts");
+      }
+    }
     if (!Array.isArray(payload.adapterFacts) || !Array.isArray(payload.latchEvents)) {
       addError(errors, record.line, "invalid-windows-video-payload", "windows-video-path adapterFacts and latchEvents must be arrays");
     }
