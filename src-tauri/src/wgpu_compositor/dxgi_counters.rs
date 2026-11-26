@@ -11,6 +11,18 @@ use serde::{Deserialize, Serialize};
 
 use super::render_path::DxgiFailureReason;
 
+/// Whether the DXGI import attempt actually probed for `IDXGIKeyedMutex`.
+///
+/// `Unprobed` is distinct from `Absent`: failures before the resource probe
+/// must not be reported as evidence that a keyed mutex was missing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KeyedMutexObservation {
+    Present,
+    Absent,
+    Unprobed,
+}
+
 /// Maximum distinct HRESULT codes tracked individually before spilling to overflow.
 pub const HRESULT_HISTOGRAM_SLOTS: usize = 16;
 
@@ -85,6 +97,7 @@ pub struct DxgiCounters {
     duration_buckets: [AtomicU64; DURATION_BUCKET_COUNT],
     keyed_mutex_present: AtomicU64,
     keyed_mutex_absent: AtomicU64,
+    keyed_mutex_unprobed: AtomicU64,
 }
 
 /// Global process-wide DXGI counters updated at every attempt / CPU fallback.
@@ -127,6 +140,7 @@ pub struct DxgiCountersSnapshot {
     pub import_duration_histogram: Vec<DurationBucketCount>,
     pub keyed_mutex_present: u64,
     pub keyed_mutex_absent: u64,
+    pub keyed_mutex_unprobed: u64,
 }
 
 impl DxgiCounters {
@@ -178,6 +192,7 @@ impl DxgiCounters {
             ],
             keyed_mutex_present: AtomicU64::new(0),
             keyed_mutex_absent: AtomicU64::new(0),
+            keyed_mutex_unprobed: AtomicU64::new(0),
         }
     }
 
@@ -187,7 +202,7 @@ impl DxgiCounters {
         success: bool,
         failure_reason: Option<DxgiFailureReason>,
         hresult: Option<u32>,
-        has_keyed_mutex: bool,
+        keyed_mutex: KeyedMutexObservation,
         attempt_duration_ns: u64,
     ) {
         self.attempts.fetch_add(1, Ordering::Relaxed);
@@ -201,10 +216,16 @@ impl DxgiCounters {
             self.record_hresult(hr);
         }
 
-        if has_keyed_mutex {
-            self.keyed_mutex_present.fetch_add(1, Ordering::Relaxed);
-        } else {
-            self.keyed_mutex_absent.fetch_add(1, Ordering::Relaxed);
+        match keyed_mutex {
+            KeyedMutexObservation::Present => {
+                self.keyed_mutex_present.fetch_add(1, Ordering::Relaxed);
+            }
+            KeyedMutexObservation::Absent => {
+                self.keyed_mutex_absent.fetch_add(1, Ordering::Relaxed);
+            }
+            KeyedMutexObservation::Unprobed => {
+                self.keyed_mutex_unprobed.fetch_add(1, Ordering::Relaxed);
+            }
         }
 
         let bucket = duration_bucket_index(attempt_duration_ns);
@@ -225,12 +246,10 @@ impl DxgiCounters {
                 return;
             }
             if current == 0 {
-                match slot.key.compare_exchange(
-                    0,
-                    target_key,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
-                ) {
+                match slot
+                    .key
+                    .compare_exchange(0, target_key, Ordering::AcqRel, Ordering::Acquire)
+                {
                     Ok(_) => {
                         slot.count.fetch_add(1, Ordering::Relaxed);
                         return;
@@ -277,7 +296,11 @@ impl DxgiCounters {
                 }
             }
         }
-        hresult_histogram.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.hresult.cmp(&b.hresult)));
+        hresult_histogram.sort_by(|a, b| {
+            b.count
+                .cmp(&a.count)
+                .then_with(|| a.hresult.cmp(&b.hresult))
+        });
 
         let import_duration_histogram = DURATION_BUCKET_LABELS
             .iter()
@@ -298,6 +321,7 @@ impl DxgiCounters {
             import_duration_histogram,
             keyed_mutex_present: self.keyed_mutex_present.load(Ordering::Relaxed),
             keyed_mutex_absent: self.keyed_mutex_absent.load(Ordering::Relaxed),
+            keyed_mutex_unprobed: self.keyed_mutex_unprobed.load(Ordering::Relaxed),
         }
     }
 
@@ -318,6 +342,7 @@ impl DxgiCounters {
         }
         self.keyed_mutex_present.store(0, Ordering::Relaxed);
         self.keyed_mutex_absent.store(0, Ordering::Relaxed);
+        self.keyed_mutex_unprobed.store(0, Ordering::Relaxed);
     }
 }
 
@@ -328,10 +353,16 @@ impl Default for DxgiCounters {
 }
 
 /// Pure helper used by `dxgi_import::import_into_wgpu` on success so the
-/// computed `has_keyed_mutex` flag is carried through instead of hard-coded.
+/// computed keyed-mutex observation is carried through instead of hard-coded.
 #[inline]
-pub const fn success_record_has_keyed_mutex(imported_has_keyed_mutex: bool) -> bool {
-    imported_has_keyed_mutex
+pub const fn success_record_keyed_mutex_observation(
+    imported_has_keyed_mutex: bool,
+) -> KeyedMutexObservation {
+    if imported_has_keyed_mutex {
+        KeyedMutexObservation::Present
+    } else {
+        KeyedMutexObservation::Absent
+    }
 }
 
 #[cfg(test)]
@@ -342,13 +373,25 @@ mod tests {
     fn records_attempts_successes_fallbacks_and_keyed_mutex_counts() {
         let counters = DxgiCounters::new();
 
-        counters.record_attempt(true, None, None, success_record_has_keyed_mutex(true), 25_000);
-        counters.record_attempt(true, None, None, success_record_has_keyed_mutex(false), 100_000);
+        counters.record_attempt(
+            true,
+            None,
+            None,
+            success_record_keyed_mutex_observation(true),
+            25_000,
+        );
+        counters.record_attempt(
+            true,
+            None,
+            None,
+            success_record_keyed_mutex_observation(false),
+            100_000,
+        );
         counters.record_attempt(
             false,
             Some(DxgiFailureReason::DeviceLost),
             Some(0x887A_0005),
-            false,
+            KeyedMutexObservation::Unprobed,
             300_000,
         );
         counters.record_cpu_fallback();
@@ -359,7 +402,8 @@ mod tests {
         assert_eq!(snap.successes, 2);
         assert_eq!(snap.cpu_fallbacks, 2);
         assert_eq!(snap.keyed_mutex_present, 1);
-        assert_eq!(snap.keyed_mutex_absent, 2);
+        assert_eq!(snap.keyed_mutex_absent, 1);
+        assert_eq!(snap.keyed_mutex_unprobed, 1);
         assert_eq!(
             snap.failures_by_reason,
             vec![FailureReasonCount {
@@ -379,11 +423,18 @@ mod tests {
 
     #[test]
     fn success_record_preserves_computed_keyed_mutex_value() {
-        // Negative control: if success_record_has_keyed_mutex returned `false`
+        // Negative control: if success_record_keyed_mutex_observation returned
+        // `Absent` for every value
         // unconditionally (like the old hard-coded `has_keyed_mutex: false`),
         // `keyed_mutex_present` would be 0 and this test would fail.
         let counters = DxgiCounters::new();
-        counters.record_attempt(true, None, None, success_record_has_keyed_mutex(true), 10_000);
+        counters.record_attempt(
+            true,
+            None,
+            None,
+            success_record_keyed_mutex_observation(true),
+            10_000,
+        );
 
         let snap = counters.snapshot();
         assert_eq!(snap.keyed_mutex_present, 1);
@@ -397,14 +448,20 @@ mod tests {
         // Insert 16 distinct HRESULTs (including 0x0000_0000).
         for i in 0..HRESULT_HISTOGRAM_SLOTS {
             let hr = if i == 0 { 0 } else { 0x887A_0000 + i as u32 };
-            counters.record_attempt(false, Some(DxgiFailureReason::ImportFailed), Some(hr), false, 10_000);
+            counters.record_attempt(
+                false,
+                Some(DxgiFailureReason::ImportFailed),
+                Some(hr),
+                KeyedMutexObservation::Unprobed,
+                10_000,
+            );
         }
         // Increment an existing slot again — must not spill to overflow.
         counters.record_attempt(
             false,
             Some(DxgiFailureReason::ImportFailed),
             Some(0x887A_0001),
-            false,
+            KeyedMutexObservation::Unprobed,
             10_000,
         );
         // Insert a 17th and 18th distinct HRESULT — must spill to overflow.
@@ -412,14 +469,14 @@ mod tests {
             false,
             Some(DxgiFailureReason::ImportFailed),
             Some(0x8007_0005),
-            false,
+            KeyedMutexObservation::Unprobed,
             10_000,
         );
         counters.record_attempt(
             false,
             Some(DxgiFailureReason::ImportFailed),
             Some(0x8007_0057),
-            false,
+            KeyedMutexObservation::Unprobed,
             10_000,
         );
 
@@ -434,22 +491,26 @@ mod tests {
     fn duration_histogram_maps_all_seven_buckets() {
         let counters = DxgiCounters::new();
         let samples_ns = [
-            10_000,      // <50us
-            75_000,      // 50-200us
-            350_000,     // 200-500us
-            750_000,     // 500us-1ms
-            2_500_000,   // 1-5ms
-            10_000_000,  // 5-16ms
-            25_000_000,  // >=16ms
+            10_000,     // <50us
+            75_000,     // 50-200us
+            350_000,    // 200-500us
+            750_000,    // 500us-1ms
+            2_500_000,  // 1-5ms
+            10_000_000, // 5-16ms
+            25_000_000, // >=16ms
         ];
         for ns in samples_ns {
-            counters.record_attempt(true, None, None, false, ns);
+            counters.record_attempt(true, None, None, KeyedMutexObservation::Absent, ns);
         }
 
         let snap = counters.snapshot();
         for (idx, bucket) in snap.import_duration_histogram.iter().enumerate() {
             assert_eq!(bucket.bucket, DURATION_BUCKET_LABELS[idx]);
-            assert_eq!(bucket.count, 1, "bucket {} should have count 1", bucket.bucket);
+            assert_eq!(
+                bucket.count, 1,
+                "bucket {} should have count 1",
+                bucket.bucket
+            );
         }
     }
 
@@ -466,7 +527,11 @@ mod tests {
                         i % 2 == 0,
                         Some(DxgiFailureReason::ImportFailed),
                         Some(0x887A_0000 + (t % 4)),
-                        t % 2 == 0,
+                        if t % 2 == 0 {
+                            KeyedMutexObservation::Present
+                        } else {
+                            KeyedMutexObservation::Absent
+                        },
                         100_000,
                     );
                 }
@@ -480,6 +545,7 @@ mod tests {
         assert_eq!(snap.successes, 500);
         assert_eq!(snap.keyed_mutex_present, 500);
         assert_eq!(snap.keyed_mutex_absent, 500);
+        assert_eq!(snap.keyed_mutex_unprobed, 0);
         assert_eq!(snap.hresult_overflow, 0);
     }
 }

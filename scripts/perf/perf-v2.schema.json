@@ -72,7 +72,18 @@
             "properties": {
               "platform": { "enum": ["windows", "synthetic"] },
               "synthetic": { "type": "boolean" },
-              "dxgiCounters": { "type": "object" },
+              "dxgiCounters": {
+                "type": "object",
+                "required": ["attempts", "successes", "cpuFallbacks", "keyedMutexPresent", "keyedMutexAbsent", "keyedMutexUnprobed"],
+                "properties": {
+                  "attempts": { "type": "integer", "minimum": 0 },
+                  "successes": { "type": "integer", "minimum": 0 },
+                  "cpuFallbacks": { "type": "integer", "minimum": 0 },
+                  "keyedMutexPresent": { "type": "integer", "minimum": 0 },
+                  "keyedMutexAbsent": { "type": "integer", "minimum": 0 },
+                  "keyedMutexUnprobed": { "type": "integer", "minimum": 0 }
+                }
+              },
               "hazardCounters": { "type": "object" },
               "adapterFacts": { "type": "array" },
               "latchEvents": { "type": "array" },

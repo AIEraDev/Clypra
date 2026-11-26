@@ -3,10 +3,8 @@
 //! This profile validates the telemetry path only. It does not emulate a
 //! Windows adapter, decoder, resource handle, or GPU synchronization result.
 
-use super::dxgi_counters::{DxgiCounters, DXGI_COUNTERS};
-use super::dxgi_hazards::{
-    hash_texture_identity, record_lookahead_depth, register_surface, release_surface,
-};
+use super::dxgi_counters::{DxgiCounters, KeyedMutexObservation, DXGI_COUNTERS};
+use super::dxgi_hazards::{hash_texture_identity, record_lookahead_depth, register_surface};
 use super::render_path::DxgiFailureReason;
 
 const SYNTHETIC_TEXTURE_IDENTITY: usize = 0x51_4E_54_48;
@@ -20,17 +18,17 @@ pub fn record_synthetic_attempts(counters: &DxgiCounters) {
         false,
         Some(DxgiFailureReason::ImportFailed),
         Some(0x887A_0005),
-        false,
+        KeyedMutexObservation::Unprobed,
         800_000,
     );
     counters.record_attempt(
         false,
         Some(DxgiFailureReason::DeviceLost),
         Some(0x887A_0006),
-        false,
+        KeyedMutexObservation::Unprobed,
         5_000_000,
     );
-    counters.record_attempt(true, None, None, true, 120_000);
+    counters.record_attempt(true, None, None, KeyedMutexObservation::Present, 120_000);
     counters.record_cpu_fallback();
 }
 
@@ -43,11 +41,11 @@ pub fn inject_synthetic_dxgi_observations() {
     record_synthetic_attempts(&DXGI_COUNTERS);
 
     let identity = hash_texture_identity(SYNTHETIC_TEXTURE_IDENTITY);
-    register_surface(identity, 1);
-    register_surface(identity, 1);
+    let first = register_surface(identity, 1);
+    let second = register_surface(identity, 1);
     record_lookahead_depth(3);
-    release_surface(identity, 1);
-    release_surface(identity, 1);
+    drop(second);
+    drop(first);
 }
 
 #[cfg(test)]
@@ -64,7 +62,8 @@ mod tests {
         assert_eq!(snapshot.successes, 1);
         assert_eq!(snapshot.cpu_fallbacks, 1);
         assert_eq!(snapshot.keyed_mutex_present, 1);
-        assert_eq!(snapshot.keyed_mutex_absent, 2);
+        assert_eq!(snapshot.keyed_mutex_absent, 0);
+        assert_eq!(snapshot.keyed_mutex_unprobed, 2);
         assert_eq!(snapshot.hresult_histogram.len(), 2);
         assert_eq!(snapshot.hresult_overflow, 0);
     }
