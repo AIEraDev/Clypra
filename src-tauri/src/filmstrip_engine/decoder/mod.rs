@@ -1185,7 +1185,8 @@ impl VideoDecoder {
         if device_ref.is_null() || (*device_ref).data.is_null() {
             return (None, None);
         }
-        let device_context = (*(*device_ref).data).hwctx as *mut AVD3D11VADeviceContext;
+        let device_context = (*((*device_ref).data as *mut ffmpeg::ffi::AVHWDeviceContext)).hwctx
+            as *mut AVD3D11VADeviceContext;
         if device_context.is_null() || (*device_context).device.is_null() {
             return (None, None);
         }
@@ -1519,7 +1520,7 @@ impl VideoDecoder {
                     #[cfg(target_os = "windows")]
                     if hw_type == ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA {
                         let (vendor_id, device_id) = unsafe {
-                            d3d11va_adapter_ids((*ctx.as_mut_ptr()).hw_device_ctx)
+                            Self::d3d11va_adapter_ids((*ctx.as_mut_ptr()).hw_device_ctx)
                         };
                         hardware_facts.decode_adapter_vendor_id = vendor_id;
                         hardware_facts.decode_adapter_device_id = device_id;
