@@ -9,6 +9,9 @@ mod wgpu_compositor {
     pub mod preview_capabilities {
         include!("../../../src-tauri/src/wgpu_compositor/preview_capabilities.rs");
     }
+    pub mod render_path {
+        include!("../../../src-tauri/src/wgpu_compositor/render_path.rs");
+    }
     pub mod chroma_key {
         include!("../../../src-tauri/src/wgpu_compositor/chroma_key.rs");
     }
