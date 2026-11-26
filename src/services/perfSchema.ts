@@ -10,6 +10,7 @@ export const PERF_SCHEMA_VERSION = 2 as const;
 export type PerfScope =
   | "diagnostics.writer"
   | "engine.native"
+  | "native.windows.video"
   | "frontend.webview"
   | "bridge.ipc"
   | "worker.compute"
@@ -107,6 +108,7 @@ export function scopeForPerfKind(kind: string): PerfScope {
   if (kind === "native-sync" || kind === "native-session-telemetry") {
     return "engine.native";
   }
+  if (kind === "windows-video-path") return "native.windows.video";
   if (kind === "session-header" || kind === "session-footer") return "diagnostics.writer";
   if (kind === "preview-context") return "frontend.webview";
   if (kind === "worker-rollup" || kind === "animation-eval") {
