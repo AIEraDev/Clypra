@@ -17,11 +17,31 @@ CLYPRA_DISABLE_TELEMETRY_UPLOAD=1
 Each session report contains only the following fields:
 - Session ID (a random UUID generated at session open — not tied to your account or device)
 - Frame stage timing percentiles (p50, p95, p99) in microseconds
-- GPU adapter name and backend (e.g. "Intel HD 520", "d3d12")
+- GPU adapter name, vendor ID, device ID, driver version, and backend (e.g. "Intel HD 520", `0x8086`, `0x9a49`, driver version, "d3d12") when the platform exposes them
 - Preview quality tier and canvas dimensions
 - UNCH / skipped-download counts
 - Timeline zoom performance rollups (frame rate percentiles, spring settle time, discrete wheel delta buckets, DPR, and ruler/frame-cell timing aggregates — strictly zero PII)
 - App version and git commit SHA
+
+### Windows video-path instrumentation
+
+Schema-v2 sessions may include a `windows-video-path` record in the
+`native.windows.video` scope. It is supplementary, metadata-only evidence for
+the Windows DXGI zero-copy path and contains:
+
+- event-site DXGI attempt/success/fallback counters, bounded HRESULT and
+  import-duration histograms, and keyed-mutex observations;
+- observed decode adapter vendor/device IDs and default-device retry facts;
+  `luidsEqual` remains `null` until it is measured;
+- bounded latch observations and ownership-hazard counters; and
+- the existing frame-source totals.
+
+The debug-only `force_dxgi_latch` command can mark a session as `synthetic` and
+inject a small observation profile so the Rust → NDJSON → linter → ingest
+contract can be checked on macOS. Synthetic records validate the telemetry
+pipeline, not Windows hardware behavior. Upload remains opt-in only, and the
+separate `clypra-api` ingest contract stores this record as supplementary
+session evidence rather than treating it as a performance verdict.
 
 ## What is NOT collected
 - Project names, file paths, or media content
