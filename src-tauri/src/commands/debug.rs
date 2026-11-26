@@ -32,9 +32,11 @@ fn perf_driver_request_authorized(
     host_ok && token_ok
 }
 
-/// Forces the DXGI runtime latch to the given reason code so the full
-/// Rust→IPC→TypeScript→Worker→Neon chain can be verified without a real
-/// D3D11 failure.  Returns the canonical kebab-case string that was stored.
+/// Forces the DXGI runtime latch to the given reason code and injects a small
+/// synthetic observation profile so the full Rust→IPC→NDJSON→linter→ingest
+/// chain can be verified without a real D3D11 failure. This validates the
+/// telemetry pipeline, not Windows hardware behavior. Returns the canonical
+/// kebab-case string that was stored.
 ///
 /// Available only in debug builds (`debug_assertions`). Returns an error in
 /// release so the command is safe to register in the shared handler list.
@@ -50,6 +52,7 @@ pub fn force_dxgi_latch(reason: Option<String>) -> Result<String, String> {
     }
     #[cfg(debug_assertions)]
     {
+        crate::wgpu_compositor::inject_synthetic_dxgi_observations();
         use crate::wgpu_compositor::adapter_selector::{
             latch_kind_for, mark_dxgi_runtime_disabled_with_context, parse_dxgi_latch_reason,
             DxgiLatchContext, DxgiLatchReasonCode,
@@ -82,6 +85,8 @@ pub fn reset_dxgi_latch() -> Result<(), String> {
     #[cfg(debug_assertions)]
     {
         crate::wgpu_compositor::adapter_selector::reset_dxgi_latch_state_for_tests();
+        crate::wgpu_compositor::DXGI_COUNTERS.reset();
+        crate::wgpu_compositor::dxgi_hazards::reset();
         Ok(())
     }
 }
