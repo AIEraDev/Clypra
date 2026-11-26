@@ -1536,8 +1536,27 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                 Ok(Some(shared)) => {
                     let dec_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
                     max_dec_us = max_dec_us.max(dec_us);
-                    let stream_color = guard.metadata().color;
-                    let color = merge_color_metadata(frame_color, &stream_color);
+                    let stream_metadata = guard.metadata();
+                    let color = merge_color_metadata(frame_color, &stream_metadata.color);
+                    let stream_key = if layer.layer_id.is_empty() {
+                        "layer-0"
+                    } else {
+                        layer.layer_id.as_str()
+                    };
+                    crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
+                        stream_key,
+                        stream_metadata.codec_name.clone(),
+                        stream_metadata.codec_profile.clone(),
+                        stream_metadata.pixel_format.clone(),
+                        stream_metadata.color.range.clone(),
+                        None,
+                    );
+                    crate::engine::ENGINE_TELEMETRY.record_stream_adapter_facts(
+                        stream_key,
+                        stream_metadata.default_device_retry,
+                        stream_metadata.decode_adapter_vendor_id,
+                        stream_metadata.decode_adapter_device_id,
+                    );
                     frames.push((shared, width, height, color));
                 }
                 _ => {
@@ -2822,6 +2841,16 @@ async fn decode_native_video_layers(
             source.color.range.clone(),
             None,
         );
+        crate::engine::ENGINE_TELEMETRY.record_stream_adapter_facts(
+            if layer.layer_id.is_empty() {
+                "layer-0"
+            } else {
+                layer.layer_id.as_str()
+            },
+            source.default_device_retry,
+            source.decode_adapter_vendor_id,
+            source.decode_adapter_device_id,
+        );
         let decoded = actor_frame.into_native_video_frame();
         crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
             if layer.layer_id.is_empty() {
@@ -2932,6 +2961,16 @@ async fn decode_native_video_layers(
                     source.pixel_format,
                     source.color.range,
                     None,
+                );
+                crate::engine::ENGINE_TELEMETRY.record_stream_adapter_facts(
+                    if layer_id.is_empty() {
+                        format!("layer-{unique_idx}")
+                    } else {
+                        layer_id.clone()
+                    },
+                    source.default_device_retry,
+                    source.decode_adapter_vendor_id,
+                    source.decode_adapter_device_id,
                 );
                 let decoded = actor_frame.into_native_video_frame();
                 crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
