@@ -1514,14 +1514,13 @@ impl VideoDecoder {
                     (*ctx.as_mut_ptr()).thread_count = thread_count;
                     (*ctx.as_mut_ptr()).thread_type =
                         ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE;
+                    let hw_device_ctx = (*ctx.as_mut_ptr()).hw_device_ctx;
                     let decoder = ctx.decoder().video().map_err(|e| e.to_string())?;
                     let w = decoder.width();
                     let h = decoder.height();
                     #[cfg(target_os = "windows")]
                     if hw_type == ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA {
-                        let (vendor_id, device_id) = unsafe {
-                            Self::d3d11va_adapter_ids((*ctx.as_mut_ptr()).hw_device_ctx)
-                        };
+                        let (vendor_id, device_id) = Self::d3d11va_adapter_ids(hw_device_ctx);
                         hardware_facts.decode_adapter_vendor_id = vendor_id;
                         hardware_facts.decode_adapter_device_id = device_id;
                     }
