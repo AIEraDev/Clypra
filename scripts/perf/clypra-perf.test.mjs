@@ -30,6 +30,70 @@ function footer(seq = 4) {
   };
 }
 
+function windowsVideoPath(seq = 1) {
+  return {
+    schemaVersion: 2,
+    kind: "windows-video-path",
+    sessionId: "session-test",
+    timestampEpochMs: 110,
+    seq,
+    scope: "native.windows.video",
+    payload: {
+      platform: "synthetic",
+      synthetic: true,
+      dxgiCounters: { attempts: 1, successes: 0, cpuFallbacks: 1 },
+      adapterFacts: [
+        {
+          streamKey: "stream-a",
+          defaultDeviceRetry: false,
+          decodeAdapterVendorId: null,
+          decodeAdapterDeviceId: null,
+          luidsEqual: null,
+        },
+      ],
+      latchEvents: [
+        {
+          reasonCode: "dxgi-decode-failed",
+          context: null,
+          firstFrameIndex: null,
+          count: 1,
+        },
+      ],
+      framesBySource: { dxgiNv12: 0, cpuNv12: 1 },
+    },
+  };
+}
+
+test("lint accepts a windows-video-path record before the terminal footer", () => {
+  const report = lintRecords([
+    header(),
+    windowsVideoPath(),
+    {
+      schemaVersion: 2,
+      kind: "native-diagnostic",
+      sessionId: "session-test",
+      timestampEpochMs: 130,
+      seq: 2,
+      scope: "bridge.ipc",
+      payload: { marker: "session-close" },
+    },
+    footer(3),
+  ]);
+
+  assert.deepEqual(report.errors, []);
+  assert.equal(report.trusted, true);
+});
+
+test("lint rejects any record emitted after the terminal footer", () => {
+  const report = lintRecords([
+    header(),
+    footer(1),
+    { ...windowsVideoPath(2), timestampEpochMs: 150 },
+  ]);
+
+  assert.ok(report.errors.some((issue) => issue.code === "record-after-session-footer"));
+});
+
 test("lint accepts a self-describing session with declared preview context", () => {
   const report = lintRecords([
     header(),

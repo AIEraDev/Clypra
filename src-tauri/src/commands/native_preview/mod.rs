@@ -5883,6 +5883,74 @@ pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), S
 /// const stats = await invoke<SessionSnapshot>('get_session_telemetry');
 /// console.log(`${stats.frames_produced} frames, miss rate ${stats.miss_rate_pct?.toFixed(2)}%`);
 /// ```
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowsVideoAdapterFacts {
+    stream_key: String,
+    default_device_retry: bool,
+    decode_adapter_vendor_id: Option<u32>,
+    decode_adapter_device_id: Option<u32>,
+    luids_equal: Option<bool>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowsVideoPathTelemetry {
+    platform: &'static str,
+    synthetic: bool,
+    dxgi_counters: crate::wgpu_compositor::DxgiCountersSnapshot,
+    adapter_facts: Vec<WindowsVideoAdapterFacts>,
+    latch_events: Vec<crate::wgpu_compositor::adapter_selector::DxgiLatchEvent>,
+    frames_by_source: crate::wgpu_compositor::FramesBySource,
+}
+
+/// Return the bounded Windows video-path instrumentation snapshot.
+///
+/// Release builds emit this only on Windows. Debug builds also expose the
+/// same payload after `force_dxgi_latch`, allowing macOS to validate the
+/// Rust → IPC → NDJSON → linter contract without claiming Windows hardware
+/// behavior was exercised.
+#[tauri::command]
+pub async fn get_windows_video_path_telemetry(
+    app: tauri::AppHandle,
+) -> Result<Option<serde_json::Value>, String> {
+    let (latched, _, _) = crate::wgpu_compositor::adapter_selector::get_dxgi_latch_state();
+    let is_windows = cfg!(target_os = "windows");
+    let synthetic = !is_windows;
+    if !is_windows && !(cfg!(debug_assertions) && latched == Some(true)) {
+        return Ok(None);
+    }
+
+    let session_snapshot = app
+        .try_state::<std::sync::Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+        .map(|state| state.snapshot())
+        .unwrap_or_else(|| crate::wgpu_compositor::SessionTelemetryCollector::new().snapshot());
+    let engine_snapshot = crate::engine::ENGINE_TELEMETRY.snapshot();
+    let adapter_facts = engine_snapshot
+        .streams
+        .into_iter()
+        .map(|stream| WindowsVideoAdapterFacts {
+            stream_key: stream.stream_key,
+            default_device_retry: stream.default_device_retry,
+            decode_adapter_vendor_id: stream.decode_adapter_vendor_id,
+            decode_adapter_device_id: stream.decode_adapter_device_id,
+            luids_equal: stream.luids_equal,
+        })
+        .collect();
+
+    let payload = WindowsVideoPathTelemetry {
+        platform: if is_windows { "windows" } else { "synthetic" },
+        synthetic,
+        dxgi_counters: crate::wgpu_compositor::DXGI_COUNTERS.snapshot(),
+        adapter_facts,
+        latch_events: crate::wgpu_compositor::adapter_selector::get_dxgi_latch_events(),
+        frames_by_source: session_snapshot.frames_by_source,
+    };
+    serde_json::to_value(payload)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub async fn get_session_telemetry(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     use crate::wgpu_compositor::SessionTelemetryCollector;
@@ -5909,6 +5977,7 @@ pub async fn reset_session_telemetry(app: tauri::AppHandle) -> Result<(), String
     use crate::wgpu_compositor::SessionTelemetryCollector;
 
     crate::engine::ENGINE_TELEMETRY.begin_session();
+    crate::wgpu_compositor::DXGI_COUNTERS.reset();
     if let Some(state) = app.try_state::<std::sync::Arc<SessionTelemetryCollector>>() {
         state.reset_session();
     }

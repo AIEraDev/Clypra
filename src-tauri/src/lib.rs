@@ -729,6 +729,7 @@ pub fn run() {
             resize_native_surface,
             // ── Phase 5: Session performance telemetry ──────────────────────
             get_session_telemetry,
+            get_windows_video_path_telemetry,
             reset_session_telemetry,
             mark_engine_telemetry_closing,
             hide_native_surface,

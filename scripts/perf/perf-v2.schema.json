@@ -63,6 +63,25 @@
       }
     },
     {
+      "if": { "properties": { "kind": { "const": "windows-video-path" } } },
+      "then": {
+        "properties": {
+          "scope": { "const": "native.windows.video" },
+          "payload": {
+            "required": ["platform", "synthetic", "dxgiCounters", "adapterFacts", "latchEvents", "framesBySource"],
+            "properties": {
+              "platform": { "enum": ["windows", "synthetic"] },
+              "synthetic": { "type": "boolean" },
+              "dxgiCounters": { "type": "object" },
+              "adapterFacts": { "type": "array" },
+              "latchEvents": { "type": "array" },
+              "framesBySource": { "type": "object" }
+            }
+          }
+        }
+      }
+    },
+    {
       "if": { "properties": { "kind": { "const": "frame" } } },
       "then": {
         "properties": {
