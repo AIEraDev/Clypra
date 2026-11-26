@@ -101,6 +101,18 @@ pub struct VideoStreamMetadata {
     pub pixel_format: String,
     #[serde(default)]
     pub is_hardware_accelerated: bool,
+    /// True when the requested DXGI adapter failed to open and FFmpeg retried
+    /// hardware-device creation using its default adapter selection.
+    #[serde(default)]
+    pub default_device_retry: bool,
+    /// Vendor ID reported by the adapter behind the active hardware decoder.
+    /// This is absent when software decoding is active or the backend does not
+    /// expose an adapter identity.
+    #[serde(default)]
+    pub decode_adapter_vendor_id: Option<u32>,
+    /// Device ID reported by the adapter behind the active hardware decoder.
+    #[serde(default)]
+    pub decode_adapter_device_id: Option<u32>,
 }
 
 impl VideoStreamMetadata {

@@ -215,6 +215,18 @@ pub struct StreamTelemetry {
     pub decode_policy_effective: Option<String>,
     pub decode_path_chosen: Option<String>,
     pub decode_path_rejections: Vec<String>,
+    /// Whether FFmpeg had to retry hardware-device creation with its default
+    /// adapter. This is an observation, not an inferred adapter match.
+    #[serde(default)]
+    pub default_device_retry: bool,
+    /// Vendor/device IDs read from the adapter actually used by the decoder.
+    #[serde(default)]
+    pub decode_adapter_vendor_id: Option<u32>,
+    #[serde(default)]
+    pub decode_adapter_device_id: Option<u32>,
+    /// Deliberately unknown until W1-C provides a trustworthy LUID comparison.
+    #[serde(default)]
+    pub luids_equal: Option<bool>,
 }
 
 fn sanitize_stream_key(raw: &str) -> String {
@@ -596,6 +608,10 @@ impl EngineTelemetryCollector {
                 decode_policy_effective: None,
                 decode_path_chosen: None,
                 decode_path_rejections: Vec::new(),
+                default_device_retry: false,
+                decode_adapter_vendor_id: None,
+                decode_adapter_device_id: None,
+                luids_equal: None,
             };
         if let Some(existing) = streams.get_mut(&next.stream_key) {
             existing.codec = next.codec;
@@ -606,6 +622,27 @@ impl EngineTelemetryCollector {
         } else {
             streams.insert(next.stream_key.clone(), next);
         }
+    }
+
+    /// Records adapter facts observed by the decoder. The IDs must come from
+    /// the active decoder device; callers must not synthesize them from the
+    /// renderer or infer LUID equality from matching vendor/device IDs.
+    pub fn record_stream_adapter_facts(
+        &self,
+        stream_key: impl Into<String>,
+        default_device_retry: bool,
+        decode_adapter_vendor_id: Option<u32>,
+        decode_adapter_device_id: Option<u32>,
+    ) {
+        let stream_key = sanitize_stream_key(&stream_key.into());
+        let mut streams = self.streams.write();
+        let Some(stream) = streams.get_mut(&stream_key) else {
+            return;
+        };
+        stream.default_device_retry = default_device_retry;
+        stream.decode_adapter_vendor_id = decode_adapter_vendor_id;
+        stream.decode_adapter_device_id = decode_adapter_device_id;
+        stream.luids_equal = None;
     }
 
     /// Records the stream-local outcome of policy resolution and capability
@@ -1226,5 +1263,30 @@ mod tests {
             .expect("cold seek workload should exist");
         assert_eq!(cold_seek.max_decode_us, 200_000);
         assert_eq!(cold_seek.missed_deadline_count, 1);
+    }
+
+    #[test]
+    fn decoder_adapter_facts_are_observed_without_inferred_luid_equality() {
+        let telemetry = EngineTelemetryCollector::new();
+        telemetry.record_stream_telemetry(
+            "layer-main",
+            "hevc",
+            "Main 10",
+            "p010le",
+            "limited",
+            None,
+        );
+        telemetry.record_stream_adapter_facts("layer-main", true, Some(0x8086), Some(0x9a49));
+
+        let stream = telemetry
+            .snapshot()
+            .streams
+            .into_iter()
+            .find(|stream| stream.stream_key == "layer-main")
+            .expect("stream facts should be retained");
+        assert!(stream.default_device_retry);
+        assert_eq!(stream.decode_adapter_vendor_id, Some(0x8086));
+        assert_eq!(stream.decode_adapter_device_id, Some(0x9a49));
+        assert_eq!(stream.luids_equal, None);
     }
 }
