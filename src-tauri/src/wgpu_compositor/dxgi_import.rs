@@ -146,6 +146,13 @@ fn classify_hresult(hresult: u32) -> (DxgiFailureReason, u32) {
 }
 
 fn record_attempt(meta: DxgiAttemptMetadata) {
+    crate::wgpu_compositor::dxgi_counters::DXGI_COUNTERS.record_attempt(
+        meta.success,
+        meta.failure_reason,
+        meta.hresult,
+        meta.has_keyed_mutex,
+        meta.attempt_duration_ns,
+    );
     if let Ok(mut ring) = ATTEMPT_RING.lock() {
         if ring.len() >= ATTEMPT_RING_CAPACITY {
             ring.pop_front();
@@ -310,6 +317,8 @@ pub struct ImportedNv12Texture {
     pub y_view: wgpu::TextureView,
     /// `TextureAspect::Plane1` — chroma (UV), format-compatible with `Rg8Unorm`.
     pub uv_view: wgpu::TextureView,
+    /// Whether the underlying D3D12 shared resource exposed `IDXGIKeyedMutex`.
+    pub has_keyed_mutex: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -466,6 +475,7 @@ pub fn import_into_wgpu(
                 texture,
                 y_view,
                 uv_view,
+                has_keyed_mutex,
             })
         })
     };
@@ -475,12 +485,16 @@ pub fn import_into_wgpu(
 
     match result {
         Ok(texture) => {
+            let has_keyed_mutex =
+                crate::wgpu_compositor::dxgi_counters::success_record_has_keyed_mutex(
+                    texture.has_keyed_mutex,
+                );
             record_attempt(DxgiAttemptMetadata {
                 attempted_at: attempt_start,
                 success: true,
                 failure_reason: None,
                 hresult: None,
-                has_keyed_mutex: false,
+                has_keyed_mutex,
                 attempt_duration_ns,
             });
             Ok(texture)
