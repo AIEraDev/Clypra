@@ -68,11 +68,12 @@
         "properties": {
           "scope": { "const": "native.windows.video" },
           "payload": {
-            "required": ["platform", "synthetic", "dxgiCounters", "adapterFacts", "latchEvents", "framesBySource"],
+            "required": ["platform", "synthetic", "dxgiCounters", "hazardCounters", "adapterFacts", "latchEvents", "framesBySource"],
             "properties": {
               "platform": { "enum": ["windows", "synthetic"] },
               "synthetic": { "type": "boolean" },
               "dxgiCounters": { "type": "object" },
+              "hazardCounters": { "type": "object" },
               "adapterFacts": { "type": "array" },
               "latchEvents": { "type": "array" },
               "framesBySource": { "type": "object" }

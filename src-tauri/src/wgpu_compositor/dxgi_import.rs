@@ -182,6 +182,8 @@ fn record_first_failure(event: DxgiFirstFailureEvent) {
 pub struct D3d11SharedFrame {
     /// DXGI NT shared handle (closed automatically on Drop).
     pub nt_handle: HANDLE,
+    /// Session-seeded identity hash of the source texture; never a raw pointer.
+    pub texture_identity_hash: u64,
     /// Texture array slice that contains this frame (D3D11VA array decode).
     pub array_index: u32,
     /// Decoded luma width in pixels.
@@ -219,6 +221,7 @@ impl D3d11SharedFrame {
             if ret.is_ok() && !target_handle.is_invalid() {
                 Some(Self {
                     nt_handle: target_handle,
+                    texture_identity_hash: self.texture_identity_hash,
                     array_index: self.array_index,
                     width: self.width,
                     height: self.height,
@@ -232,6 +235,10 @@ impl D3d11SharedFrame {
 
 impl Drop for D3d11SharedFrame {
     fn drop(&mut self) {
+        crate::wgpu_compositor::release_surface(
+            self.texture_identity_hash,
+            self.array_index,
+        );
         if !self.nt_handle.is_invalid() {
             unsafe {
                 let _ = windows::Win32::Foundation::CloseHandle(self.nt_handle);
@@ -291,12 +298,16 @@ pub unsafe fn extract_shared_handle(
         return None;
     }
 
+    let texture_identity_hash = crate::wgpu_compositor::hash_texture_identity(texture_raw as usize);
+    crate::wgpu_compositor::register_surface(texture_identity_hash, array_index);
+
     // Read the texture dimensions.
     let mut desc = D3D11_TEXTURE2D_DESC::default();
     texture.GetDesc(&mut desc);
 
     Some(D3d11SharedFrame {
         nt_handle,
+        texture_identity_hash,
         array_index,
         width: desc.Width,
         height: desc.Height,

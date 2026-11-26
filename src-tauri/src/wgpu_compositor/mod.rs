@@ -29,6 +29,12 @@ pub use dxgi_counters::{
     DxgiCounters, DxgiCountersSnapshot, DXGI_COUNTERS,
 };
 
+pub mod dxgi_hazards;
+pub use dxgi_hazards::{
+    hash_texture_identity, record_lookahead_depth, register_surface, release_surface,
+    DxgiHazardSnapshot,
+};
+
 pub mod frame_resource;
 pub use frame_resource::{
     ColorMatrix, ColorPrimaries, ColorRange, CpuFrame, FrameColorInfo, FrameResource,

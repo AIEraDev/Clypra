@@ -42,6 +42,11 @@ function windowsVideoPath(seq = 1) {
       platform: "synthetic",
       synthetic: true,
       dxgiCounters: { attempts: 1, successes: 0, cpuFallbacks: 1 },
+      hazardCounters: {
+        sliceReuseInFlight: 0,
+        handleOutstandingMax: 1,
+        lookaheadDepthMax: 2,
+      },
       adapterFacts: [
         {
           streamKey: "stream-a",

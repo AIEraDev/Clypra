@@ -5899,6 +5899,7 @@ struct WindowsVideoPathTelemetry {
     platform: &'static str,
     synthetic: bool,
     dxgi_counters: crate::wgpu_compositor::DxgiCountersSnapshot,
+    hazard_counters: crate::wgpu_compositor::DxgiHazardSnapshot,
     adapter_facts: Vec<WindowsVideoAdapterFacts>,
     latch_events: Vec<crate::wgpu_compositor::adapter_selector::DxgiLatchEvent>,
     frames_by_source: crate::wgpu_compositor::FramesBySource,
@@ -5942,6 +5943,7 @@ pub async fn get_windows_video_path_telemetry(
         platform: if is_windows { "windows" } else { "synthetic" },
         synthetic,
         dxgi_counters: crate::wgpu_compositor::DXGI_COUNTERS.snapshot(),
+        hazard_counters: crate::wgpu_compositor::dxgi_hazards::snapshot(),
         adapter_facts,
         latch_events: crate::wgpu_compositor::adapter_selector::get_dxgi_latch_events(),
         frames_by_source: session_snapshot.frames_by_source,
@@ -5978,6 +5980,7 @@ pub async fn reset_session_telemetry(app: tauri::AppHandle) -> Result<(), String
 
     crate::engine::ENGINE_TELEMETRY.begin_session();
     crate::wgpu_compositor::DXGI_COUNTERS.reset();
+    crate::wgpu_compositor::dxgi_hazards::reset();
     if let Some(state) = app.try_state::<std::sync::Arc<SessionTelemetryCollector>>() {
         state.reset_session();
     }

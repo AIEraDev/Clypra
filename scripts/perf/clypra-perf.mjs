@@ -311,7 +311,7 @@ export function lintRecords(records, options = {}) {
     if (typeof payload.synthetic !== "boolean") {
       addError(errors, record.line, "invalid-windows-video-synthetic", "windows-video-path synthetic must be boolean");
     }
-    for (const field of ["dxgiCounters", "framesBySource"]) {
+    for (const field of ["dxgiCounters", "hazardCounters", "framesBySource"]) {
       if (!asObject(payload[field])) {
         addError(errors, record.line, "invalid-windows-video-payload", `windows-video-path ${field} must be an object`);
       }
