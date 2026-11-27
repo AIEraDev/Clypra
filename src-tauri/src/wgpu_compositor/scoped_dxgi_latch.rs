@@ -78,6 +78,7 @@ impl SizeBucket {
 /// Callers must provide normalized codec/profile/chroma names.  This type
 /// contains no source path or other per-file identity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct StreamClass {
     pub codec: String,
     pub profile: String,

@@ -36,7 +36,12 @@ the Windows DXGI zero-copy path and contains:
   when an import failed before the resource could be inspected;
 - observed decode adapter vendor/device IDs and default-device retry facts;
   `luidsEqual` remains `null` until it is measured;
-- bounded latch observations and ownership-hazard counters; and
+- bounded legacy latch observations and ownership-hazard counters; and
+- when `CLYPRA_DXGI_SCOPED_LATCH=1`, a `scopedLatch` object containing the
+  experiment arm, scoped latch events, path-free stream-class keys, currently
+  latched classes, breaker promotions, and re-probe attempt/success counts.
+  Stream classes contain only codec, profile, bit depth, chroma format, and a
+  size bucket; paths and media identifiers are not accepted;
 - the existing frame-source totals.
 
 The debug-only `force_dxgi_latch` command can mark a session as `synthetic` and

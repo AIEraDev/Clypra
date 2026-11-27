@@ -6032,6 +6032,18 @@ struct WindowsVideoAdapterFacts {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ScopedDxgiLatchTelemetry {
+    enabled: bool,
+    arm: &'static str,
+    latch_events: Vec<crate::wgpu_compositor::scoped_dxgi_latch::LatchEvent>,
+    latched_classes: Vec<crate::wgpu_compositor::scoped_dxgi_latch::StreamClass>,
+    breaker_promotions: u64,
+    probes_attempted: u64,
+    probes_succeeded: u64,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WindowsVideoPathTelemetry {
     platform: &'static str,
     synthetic: bool,
@@ -6039,6 +6051,7 @@ struct WindowsVideoPathTelemetry {
     hazard_counters: crate::wgpu_compositor::DxgiHazardSnapshot,
     adapter_facts: Vec<WindowsVideoAdapterFacts>,
     latch_events: Vec<crate::wgpu_compositor::adapter_selector::DxgiLatchEvent>,
+    scoped_latch: ScopedDxgiLatchTelemetry,
     frames_by_source: crate::wgpu_compositor::FramesBySource,
 }
 
@@ -6083,6 +6096,34 @@ pub async fn get_windows_video_path_telemetry(
         hazard_counters: crate::wgpu_compositor::dxgi_hazards::snapshot(),
         adapter_facts,
         latch_events: crate::wgpu_compositor::adapter_selector::get_dxgi_latch_events(),
+        scoped_latch: {
+            let enabled = crate::runtime_profile::resolve_runtime_flag_profile()
+                .dxgi_scoped_latch
+                .enabled;
+            let arm = if enabled {
+                "dxgi-scoped-latch"
+            } else {
+                "dxgi-legacy-latch"
+            };
+            let snapshot = crate::wgpu_compositor::adapter_selector::get_scoped_dxgi_latch_snapshot()
+                .unwrap_or(crate::wgpu_compositor::ScopedDxgiSnapshot {
+                    device_latched: false,
+                    latched_classes: Vec::new(),
+                    breaker_promotions: 0,
+                    probes_attempted: 0,
+                    probes_succeeded: 0,
+                    events: Vec::new(),
+                });
+            ScopedDxgiLatchTelemetry {
+                enabled,
+                arm,
+                latch_events: snapshot.events,
+                latched_classes: snapshot.latched_classes,
+                breaker_promotions: snapshot.breaker_promotions,
+                probes_attempted: snapshot.probes_attempted,
+                probes_succeeded: snapshot.probes_succeeded,
+            }
+        },
         frames_by_source: session_snapshot.frames_by_source,
     };
     serde_json::to_value(payload)
