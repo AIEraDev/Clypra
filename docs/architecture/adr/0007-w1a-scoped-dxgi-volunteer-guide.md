@@ -1,8 +1,16 @@
 # ADR-0007 W1-A: Scoped DXGI latch volunteer guide
 
-Status: pre-registered; lock before field data
+Status: pre-registered; fixture pack locked before field data
 
 Protocol version: `w1a-volunteer-v1`
+
+Fixture pack: `w1a-volunteer-v1-fixtures.zip`
+
+Published archive SHA-256 (verify the downloaded archive itself):
+`9dd56867104fe619fd29b0e952708efe68fe18654f26dcbf1741c0f7efebc7ff`
+
+Pack descriptor SHA-256 (the value for `CLYPRA_MEDIA_HASH`):
+`6420a4e2491f552f9e7630fb007f26285b7ed9b22d2d367204af706afb7f1367`
 
 This guide validates the W1-A scoped DXGI latch on real Windows machines. It
 compares the existing legacy behavior with `CLYPRA_DXGI_SCOPED_LATCH=1` on the
@@ -95,6 +103,19 @@ published with this protocol. The pack contains:
 1. **A:** H.264, 8-bit, 4:2:0, with a resolution bucket recorded by the app.
 2. **B:** a Main10/P010 clip or a clip that is software-decoded on the test
    machine.
+
+The locked pack files and hashes are:
+
+| File | Role | SHA-256 |
+| --- | --- | --- |
+| `w1a-h264-8bit.mp4` | A | `ad58601649071f95f2326ae3bb6e08ce2293fc1167baae153ffb72777c8cd28e` |
+| `w1a-hevc-main10.mp4` | B | `6094278fd13bf07bdc78a815b73817d2fd41bf65edd590c8fa372d3d5286b885` |
+
+After extracting the immutable release asset, verify both files with
+`Get-FileHash -Algorithm SHA256` (or `sha256sum`) and compare the results with
+this table and `manifest.json`. Then set
+`CLYPRA_MEDIA_HASH=6420a4e2491f552f9e7630fb007f26285b7ed9b22d2d367204af706afb7f1367`.
+The app header must contain that same value.
 
 Verify the pack's SHA-256 independently before the run. Set
 `CLYPRA_MEDIA_HASH` to that published hash and reject any session whose header

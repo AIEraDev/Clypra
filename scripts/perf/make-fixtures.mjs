@@ -228,6 +228,98 @@ export async function generateMediaFixtures(targetDir, options = {}) {
 }
 
 /**
+ * Generate the immutable two-clip pack used by the W1-A Windows volunteer
+ * comparison. The pack hash is derived from the canonical manifest contents,
+ * not from a timestamp or archive metadata, so volunteers can verify it
+ * independently before setting CLYPRA_MEDIA_HASH.
+ */
+export async function generateW1AVolunteerFixtures(targetDir, options = {}) {
+  await mkdir(targetDir, { recursive: true });
+  const ffmpeg = resolveFfmpeg();
+  const clips = [
+    {
+      filename: "w1a-h264-8bit.mp4",
+      role: "A",
+      codec: "h264",
+      profile: "high",
+      bitDepth: 8,
+      chroma: "yuv420p",
+      width: 640,
+      height: 360,
+      frameRate: 30,
+      durationSeconds: 10,
+      args: [
+        "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30",
+        "-t", "10", "-map_metadata", "-1", "-fflags", "+bitexact",
+        "-c:v", "libx264", "-preset", "medium", "-threads", "1",
+        "-profile:v", "high", "-pix_fmt", "yuv420p", "-g", "30",
+        "-keyint_min", "30", "-sc_threshold", "0", "-movflags", "+faststart",
+      ],
+    },
+    {
+      filename: "w1a-hevc-main10.mp4",
+      role: "B",
+      codec: "hevc",
+      profile: "main10",
+      bitDepth: 10,
+      chroma: "yuv420p10le",
+      width: 640,
+      height: 360,
+      frameRate: 30,
+      durationSeconds: 10,
+      args: [
+        "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=30",
+        "-t", "10", "-map_metadata", "-1", "-fflags", "+bitexact",
+        "-vf", "format=yuv420p10le", "-c:v", "libx265", "-preset", "medium",
+        "-threads", "1", "-profile:v", "main10", "-pix_fmt", "yuv420p10le",
+        "-x265-params", "pools=1:frame-threads=1", "-g", "30",
+        "-keyint_min", "30", "-tag:v", "hvc1", "-movflags", "+faststart",
+      ],
+    },
+  ];
+
+  const media = [];
+  for (const clip of clips) {
+    const dest = path.join(targetDir, clip.filename);
+    if (options.force || !(await fileExists(dest))) {
+      await execFile(ffmpeg, [
+        "-hide_banner", "-loglevel", "error", "-y",
+        ...clip.args,
+        dest,
+      ]);
+    }
+    media.push({
+      filename: clip.filename,
+      role: clip.role,
+      codec: clip.codec,
+      profile: clip.profile,
+      bitDepth: clip.bitDepth,
+      chroma: clip.chroma,
+      width: clip.width,
+      height: clip.height,
+      frameRate: clip.frameRate,
+      durationSeconds: clip.durationSeconds,
+      sha256: await hashFile(dest),
+    });
+  }
+
+  const descriptor = {
+    schemaVersion: 1,
+    protocolVersion: "w1a-volunteer-v1",
+    media,
+  };
+  const packSha256 = computeObjectHash(descriptor);
+  const manifest = { ...descriptor, packSha256 };
+  await writeFile(
+    path.join(targetDir, "manifest.json"),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    "utf8",
+  );
+
+  return { ...manifest, directory: targetDir };
+}
+
+/**
  * Build normalized, deterministic project JSON definitions across the 3 workload tiers.
  */
 export function buildTierProjects(mediaDirRelative = "tests/fixtures/perf") {
