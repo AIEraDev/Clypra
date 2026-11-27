@@ -426,7 +426,10 @@ fn make_session_header(
         unverified_capabilities_verified: false,
         ffmpeg_callback_verified: crate::filmstrip_engine::decoder::ffmpeg_callback_verified(),
         media_hash: std::env::var("CLYPRA_MEDIA_HASH").ok(),
-        project_hash: std::env::var("CLYPRA_PROJECT_HASH").ok(),
+        // Project hashes can fingerprint a user's project. They are not part
+        // of the production upload contract; media_hash is retained only for
+        // the explicitly supplied, public W1-A fixture-pack identifier.
+        project_hash: None,
         project_computed_duration: env_f64("CLYPRA_PROJECT_COMPUTED_DURATION"),
         project_frame_rate: env_f64("CLYPRA_PROJECT_FRAME_RATE"),
         media_frame_rate: env_f64("CLYPRA_MEDIA_FRAME_RATE"),

@@ -56,7 +56,8 @@ import {
   type PreviewContextRecord,
 } from "./perfSchema";
 import {
-  resolveTelemetryUpload,
+  TELEMETRY_UPLOAD_KEY,
+  resolveTelemetryUploadFromStorage,
   type TelemetryUploadResolution,
 } from "./telemetryConsent";
 
@@ -77,9 +78,6 @@ const FLUSH_INTERVAL_MS = import.meta.env.DEV ? 5_000 : 30_000;
 const SYNC_POLL_INTERVAL_MS = FLUSH_INTERVAL_MS;
 /** Maximum entries held in-memory before a forced flush. Prevents unbounded growth. */
 const MAX_QUEUE_SIZE = 200;
-const TELEMETRY_UPLOAD_KEY = "clypra.telemetryUploadEnabled";
-const TELEMETRY_ONBOARDING_KEY = "clypra.telemetryOnboardingShown";
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type PerfLogKind =
@@ -825,7 +823,7 @@ export class PerfLogService {
 
     this.queue = [];
 
-    // Upload only if opt-in is enabled and not suppressed by env var.
+    // Upload only if the shared disclosure/consent policy enables it.
     if (closedPath && this.resolveTelemetryUpload().enabled) {
       await this.uploadSessionFile(closedPath);
     }
@@ -1477,21 +1475,7 @@ export class PerfLogService {
         import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1",
     );
 
-    try {
-      return resolveTelemetryUpload({
-        isDev: import.meta.env.DEV,
-        envKill,
-        stored: localStorage.getItem(TELEMETRY_UPLOAD_KEY),
-        noticeShown: localStorage.getItem(TELEMETRY_ONBOARDING_KEY) === "true",
-      });
-    } catch {
-      return resolveTelemetryUpload({
-        isDev: import.meta.env.DEV,
-        envKill,
-        stored: undefined,
-        noticeShown: false,
-      });
-    }
+    return resolveTelemetryUploadFromStorage({ isDev: import.meta.env.DEV, envKill });
   }
 
   /** Enable or disable telemetry upload. Persists across sessions. Pass `false` to explicitly opt out. */
@@ -1516,26 +1500,20 @@ export class PerfLogService {
 
   /** Returns the current upload state using the same policy as the upload gates. */
   static isTelemetryUploadEnabledStatic(): boolean {
-    try {
-      const g =
-        typeof globalThis !== "undefined"
-          ? (globalThis as Record<string, unknown>)
-          : {};
-      const proc = g.process as
-        | { env?: Record<string, string | undefined> }
-        | undefined;
-      return resolveTelemetryUpload({
-        isDev: import.meta.env.DEV,
-        envKill: Boolean(
-          proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD ||
-            import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1",
-        ),
-        stored: localStorage.getItem(TELEMETRY_UPLOAD_KEY),
-        noticeShown: localStorage.getItem(TELEMETRY_ONBOARDING_KEY) === "true",
-      }).enabled;
-    } catch {
-      return false;
-    }
+    const g =
+      typeof globalThis !== "undefined"
+        ? (globalThis as Record<string, unknown>)
+        : {};
+    const proc = g.process as
+      | { env?: Record<string, string | undefined> }
+      | undefined;
+    return resolveTelemetryUploadFromStorage({
+      isDev: import.meta.env.DEV,
+      envKill: Boolean(
+        proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD ||
+          import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1",
+      ),
+    }).enabled;
   }
 }
 

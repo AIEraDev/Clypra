@@ -7,7 +7,9 @@
 
 import { generateId } from "@/lib/utils/id";
 import { getApiBaseUrl, getApiHeaders } from "@/lib/api/apiUtils";
+import { getAppVersionSync } from "@/lib/app/appVersion";
 import { lifecycleMonitor, type LifecycleEvent } from "@/core/monitoring/LifecycleMonitor";
+import { resolveTelemetryUploadFromStorage } from "@/services/telemetryConsent";
 
 export type CrashType =
   | "RUST_PANIC"
@@ -54,7 +56,6 @@ export interface CrashEnvelope {
     version: string;
     buildMode: string;
     uptimeSeconds: number;
-    activeProjectId?: string;
   };
   breadcrumbs: readonly LifecycleEvent[];
 }
@@ -94,6 +95,29 @@ export function scrubPII(text: string): string {
   }
 
   return result;
+}
+
+function scrubBreadcrumbs(events: readonly LifecycleEvent[]): LifecycleEvent[] {
+  return events.slice(-50).map((event) => {
+    const scrubbed: LifecycleEvent = {
+      seq: event.seq,
+      timestamp: event.timestamp,
+      type: event.type,
+    };
+
+    // Project identifiers are intentionally omitted from crash telemetry.
+    if (event.sessionId) scrubbed.sessionId = scrubPII(event.sessionId);
+    if (event.detail) {
+      scrubbed.detail = Object.fromEntries(
+        Object.entries(event.detail).map(([key, value]) => [
+          key,
+          typeof value === "string" ? scrubPII(value) : value,
+        ]),
+      );
+    }
+
+    return scrubbed;
+  });
 }
 
 // ─── Offline Queue via IndexedDB ──────────────────────────────────────────────
@@ -204,7 +228,23 @@ export class CrashReportingService {
   }
 
   public isTelemetryEnabled(): boolean {
-    return this._telemetryEnabled;
+    const g =
+      typeof globalThis !== "undefined"
+        ? (globalThis as Record<string, unknown>)
+        : {};
+    const proc = g.process as
+      | { env?: Record<string, string | undefined> }
+      | undefined;
+    return (
+      this._telemetryEnabled &&
+      resolveTelemetryUploadFromStorage({
+        isDev: import.meta.env.DEV,
+        envKill: Boolean(
+          proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD ||
+            import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1",
+        ),
+      }).enabled
+    );
   }
 
   public setEndpointOverride(endpoint: string | null): void {
@@ -315,12 +355,11 @@ export class CrashReportingService {
       error: sanitizedError,
       system: this.getSystemInfo(),
       app: {
-        version: "1.4.5",
+        version: getAppVersionSync(),
         buildMode: import.meta.env.MODE || "production",
         uptimeSeconds: Math.floor((now - APP_START_TIME) / 1000),
-        activeProjectId: params.activeProjectId,
       },
-      breadcrumbs: lifecycleMonitor.getLog().slice(-50),
+      breadcrumbs: scrubBreadcrumbs(lifecycleMonitor.getLog()),
     };
   }
 
@@ -334,7 +373,7 @@ export class CrashReportingService {
     componentStack?: string;
     activeProjectId?: string;
   }): Promise<CrashEnvelope | null> {
-    if (!this._telemetryEnabled) {
+    if (!this.isTelemetryEnabled()) {
       return null;
     }
 
@@ -396,7 +435,7 @@ export class CrashReportingService {
    * Flushes offline queued crash reports to the backend.
    */
   public async flushOfflineQueue(): Promise<number> {
-    if (!this._telemetryEnabled || (typeof navigator !== "undefined" && !navigator.onLine)) {
+    if (!this.isTelemetryEnabled() || (typeof navigator !== "undefined" && !navigator.onLine)) {
       return 0;
     }
 

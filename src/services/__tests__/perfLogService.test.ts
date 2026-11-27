@@ -141,7 +141,7 @@ describe("PerfLogService Telemetry Upload Default Behavior", () => {
     expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(true);
   });
 
-  it("allows user to toggle from default opt-out to opt-in", () => {
+  it("allows user to toggle from the undisclosed default to explicit opt-in", () => {
     expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
 
     // User opts out
