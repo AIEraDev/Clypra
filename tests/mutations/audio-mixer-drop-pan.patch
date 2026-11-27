@@ -1,9 +1,13 @@
 --- a/src-tauri/src/audio/mixer.rs
 +++ b/src-tauri/src/audio/mixer.rs
-@@ -358,4 +358,4 @@ impl AudioMixGraph {
--                        let out_l = l * track_vol * pan_l * self.master_volume;
--                        let out_r = r * track_vol * pan_r * self.master_volume;
-+                        let out_l = l * track_vol * self.master_volume;
-+                        let out_r = r * track_vol * self.master_volume;
-                         output_frame[0] += out_l;
-                         output_frame[1] += out_r;
+@@ -531,8 +531,8 @@ impl AudioMixGraph {
+             let (gain_mono, gain_l, gain_r) = if fast_path_start.is_some() {
+                 let g = clip.config.gain;
+                 (
+                     track_vol * self.master_volume * g,
+-                    track_vol * pan_l * self.master_volume * g,
+-                    track_vol * pan_r * self.master_volume * g,
++                    track_vol * self.master_volume * g,
++                    track_vol * self.master_volume * g,
+                 )
+             } else {
