@@ -120,12 +120,23 @@ pub struct PerfSystemFingerprint {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DxgiScopedLatchHeader {
+    pub enabled: bool,
+    pub frame_failure_threshold: usize,
+    pub frame_failure_window_ms: u64,
+    pub initial_probe_backoff_ms: u64,
+    pub max_probe_backoff_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PerfSessionHeader {
     pub schema_version: u16,
     pub session_id: String,
     pub opened_at_epoch_ms: u64,
     pub build: PerfBuildIdentity,
     pub system: PerfSystemFingerprint,
+    pub dxgi_scoped_latch: DxgiScopedLatchHeader,
     pub resolved_flags: std::collections::BTreeMap<String, bool>,
     /// Profile that supplied defaults for this session. This is separate from
     /// build debug assertions because release binaries can opt into the dev
@@ -244,6 +255,10 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
             runtime_profile.disable_dirty_recovery.enabled,
         ),
         (
+            "CLYPRA_DXGI_SCOPED_LATCH".to_string(),
+            runtime_profile.dxgi_scoped_latch.enabled,
+        ),
+        (
             "CLYPRA_VALIDATE_STAGES".to_string(),
             runtime_profile.validate_stages.enabled,
         ),
@@ -296,16 +311,28 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
             "CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY".to_string(),
             runtime_profile.disable_dirty_recovery.source.to_string(),
         ),
+        (
+            "CLYPRA_DXGI_SCOPED_LATCH".to_string(),
+            runtime_profile.dxgi_scoped_latch.source.to_string(),
+        ),
     ]
     .into_iter()
     .collect();
-    let experiment_arm = std::env::var("CLYPRA_EXPERIMENT_ARM").ok();
+    let dxgi_arm = if runtime_profile.dxgi_scoped_latch.enabled {
+        "dxgi-scoped-latch"
+    } else {
+        "dxgi-legacy-latch"
+    };
+    let experiment_arm = std::env::var("CLYPRA_EXPERIMENT_ARM")
+        .ok()
+        .or_else(|| Some(dxgi_arm.to_string()));
     let experiment_arm_meaning = experiment_arm.as_ref().map(|_| {
-        if runtime_profile.disable_dirty_recovery.enabled {
-            "dirty-recovery-disabled".to_string()
+        let recovery_arm = if runtime_profile.disable_dirty_recovery.enabled {
+            "dirty-recovery-disabled"
         } else {
-            "dirty-recovery-enabled".to_string()
-        }
+            "dirty-recovery-enabled"
+        };
+        format!("{dxgi_arm}; {recovery_arm}")
     });
     let env_f64 = |name: &str| {
         std::env::var(name)
@@ -362,6 +389,17 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
             power_source: probe_power_source(),
             low_power_mode: probe_low_power_mode(),
             thermal_state: probe_thermal_state(),
+        },
+        dxgi_scoped_latch: DxgiScopedLatchHeader {
+            enabled: runtime_profile.dxgi_scoped_latch.enabled,
+            frame_failure_threshold:
+                crate::wgpu_compositor::scoped_dxgi_latch::FRAME_FAILURE_THRESHOLD,
+            frame_failure_window_ms:
+                crate::wgpu_compositor::scoped_dxgi_latch::FRAME_FAILURE_WINDOW_MS,
+            initial_probe_backoff_ms:
+                crate::wgpu_compositor::scoped_dxgi_latch::INITIAL_PROBE_BACKOFF_MS,
+            max_probe_backoff_ms:
+                crate::wgpu_compositor::scoped_dxgi_latch::MAX_PROBE_BACKOFF_MS,
         },
         resolved_flags,
         runtime_profile: runtime_profile.profile,
