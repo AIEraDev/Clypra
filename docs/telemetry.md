@@ -30,10 +30,7 @@ Schema-v2 sessions may include a `windows-video-path` record in the
 the Windows DXGI zero-copy path and contains:
 
 - event-site DXGI attempt/success/fallback counters, bounded HRESULT and
-  import-duration histograms, and keyed-mutex observations. Keyed-mutex
-  observations are tri-state: `keyedMutexPresent`, `keyedMutexAbsent`, and
-  `keyedMutexUnprobed`; their sum equals `attempts`, and `unprobed` is used
-  when an import failed before the resource could be inspected;
+  import-duration histograms, and keyed-mutex observations;
 - observed decode adapter vendor/device IDs and default-device retry facts;
   `luidsEqual` remains `null` until it is measured;
 - bounded latch observations and ownership-hazard counters; and

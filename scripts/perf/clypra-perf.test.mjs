@@ -41,14 +41,7 @@ function windowsVideoPath(seq = 1) {
     payload: {
       platform: "synthetic",
       synthetic: true,
-      dxgiCounters: {
-        attempts: 1,
-        successes: 0,
-        cpuFallbacks: 1,
-        keyedMutexPresent: 0,
-        keyedMutexAbsent: 0,
-        keyedMutexUnprobed: 1,
-      },
+      dxgiCounters: { attempts: 1, successes: 0, cpuFallbacks: 1 },
       hazardCounters: {
         sliceReuseInFlight: 0,
         handleOutstandingMax: 1,
@@ -104,26 +97,6 @@ test("lint rejects any record emitted after the terminal footer", () => {
   ]);
 
   assert.ok(report.errors.some((issue) => issue.code === "record-after-session-footer"));
-});
-
-test("lint rejects keyed-mutex counters that do not account for every attempt", () => {
-  const valid = windowsVideoPath();
-  const report = lintRecords([
-    header(),
-    {
-      ...valid,
-      payload: {
-        ...valid.payload,
-        dxgiCounters: {
-          ...valid.payload.dxgiCounters,
-          attempts: 2,
-          keyedMutexUnprobed: 1,
-        },
-      },
-    },
-  ]);
-
-  assert.ok(report.errors.some((issue) => issue.code === "windows-keyed-mutex-counter-mismatch"));
 });
 
 test("lint accepts a self-describing session with declared preview context", () => {
