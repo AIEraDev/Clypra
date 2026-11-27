@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { toMsixVersion } from "./msix-version.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -94,8 +95,13 @@ try {
   // Test version transformation
   const pkg = JSON.parse(fs.readFileSync(path.join(rootDir, "package.json"), "utf8"));
   const rawVer = pkg.version;
-  const quadVer = rawVer.split(".").length === 3 ? `${rawVer}.0` : rawVer;
-  assert(/^\d+\.\d+\.\d+\.\d+$/.test(quadVer), `Version formatted to quad-part MSIX version: ${quadVer}`);
+  let quadVer = "";
+  try {
+    quadVer = toMsixVersion(rawVer);
+    assert(true, `Version formatted to quad-part MSIX version: ${quadVer}`);
+  } catch (err) {
+    assert(false, err.message);
+  }
 
   // Test manifest rendering
   let renderedManifest = fs.readFileSync(manifestPath, "utf8");

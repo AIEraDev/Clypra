@@ -105,7 +105,13 @@ jobs:
           } else {
             (Get-Content package.json | ConvertFrom-Json).version
           }
-          $quadVer = if ($rawVer.Split('.').Count -eq 3) { "$rawVer.0" } else { $rawVer }
+          # MSIX accepts four numeric components; prerelease labels such as
+          # 1.6.9-1 are release metadata and must not become a fifth component.
+          $versionCore = ($rawVer -split '[+-]', 2)[0]
+          $quadVer = if ($versionCore.Split('.').Count -eq 3) { "$versionCore.0" } else { $versionCore }
+          if ($quadVer -notmatch '^\d+\.\d+\.\d+\.\d+$') {
+            throw "Invalid MSIX version derived from tag '$rawVer': '$quadVer'"
+          }
 
           $pkgName = if ("${{ secrets.MS_STORE_PACKAGE_NAME }}") {
             "${{ secrets.MS_STORE_PACKAGE_NAME }}"

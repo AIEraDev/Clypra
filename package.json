@@ -29,6 +29,7 @@
     "ensure:sidecars": "node scripts/ensure-sidecars.mjs",
     "verify:sidecars": "node scripts/verify-sidecars.mjs && node scripts/verify-clean-path-export.mjs",
     "verify:msix": "node scripts/verify-msix-staging.mjs",
+    "test:msix-version": "node --test scripts/msix-version.test.mjs",
     "smoke:bundle": "node scripts/smoke-test-packaged-app.mjs",
     "package:msix": "pwsh scripts/package-msix.ps1",
     "docs:check": "node scripts/check-doc-links.mjs",
