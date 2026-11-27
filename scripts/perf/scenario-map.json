@@ -78,7 +78,9 @@
       "project-audio",
       "project-text",
       "project-text-effect",
-      "project-text-template"
+      "project-text-template",
+      "cold-seek",
+      "scrub-sweep"
     ],
     "tier2": [
       "project-stacked-2",
@@ -88,7 +90,8 @@
     ],
     "tier3": [
       "playback-composite-25fps",
-      "playback-composite-30fps"
+      "playback-composite-30fps",
+      "composite-scrub-sweep"
     ]
   }
 }

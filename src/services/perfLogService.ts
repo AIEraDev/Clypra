@@ -363,6 +363,18 @@ export class PerfLogService {
     }
   }
 
+  private pushToQueue(entry: PerfLogEntry): void {
+    // Always stamp with the active session ID in case the caller passed a
+    // stale ID from before a project switch.
+    if (this.sessionId) {
+      entry.sessionId = this.sessionId;
+    }
+    entry.schemaVersion ??= PERF_SCHEMA_VERSION;
+    entry.seq ??= this.nextSequence++;
+    entry.scope ??= scopeForPerfKind(entry.kind);
+    this.queue.push(entry);
+  }
+
   /**
    * Enqueues one entry for the current session.
    * Called by `telemetryCollector` after every rollup / event build.
@@ -371,14 +383,7 @@ export class PerfLogService {
   enqueue(entry: PerfLogEntry): void {
     if (!this.sessionId || !isTauriRuntime()) return;
 
-    // Always stamp with the active session ID in case the caller passed a
-    // stale ID from before a project switch.
-    entry.sessionId = this.sessionId;
-    entry.schemaVersion ??= PERF_SCHEMA_VERSION;
-    entry.seq ??= this.nextSequence++;
-    entry.scope ??= scopeForPerfKind(entry.kind);
-
-    this.queue.push(entry);
+    this.pushToQueue(entry);
 
     if (this.queue.length >= MAX_QUEUE_SIZE) {
       // Non-blocking — do not await inside a synchronous hot path.
@@ -452,7 +457,7 @@ export class PerfLogService {
       );
       if (nativeStats && nativeStats.framesProduced > 0) {
         // 1. Raw native session telemetry entry for full-fidelity Cloudflare R2 archival
-        this.queue.push({
+        this.pushToQueue({
           kind: "native-session-telemetry",
           sessionId,
           timestampEpochMs: Date.now(),
@@ -474,7 +479,7 @@ export class PerfLogService {
               )
             : 60;
 
-        this.queue.push({
+        this.pushToQueue({
           kind: "frontend-rollup",
           sessionId,
           timestampEpochMs: Date.now(),
@@ -573,7 +578,7 @@ export class PerfLogService {
           } catch {
             // Frontend stats optional
           }
-          this.queue.push({
+          this.pushToQueue({
             kind: "preview-benchmark-report",
             sessionId,
             timestampEpochMs: Date.now(),
@@ -595,7 +600,7 @@ export class PerfLogService {
 
     // Write a session-close marker before the final flush.
     // Uses "native-diagnostic" so it is stored in R2 but not parsed as a telemetry event.
-    this.queue.push({
+    this.pushToQueue({
       kind: "native-diagnostic",
       sessionId,
       timestampEpochMs: Date.now(),
@@ -605,7 +610,7 @@ export class PerfLogService {
     if (filmstripTelemetry.hasRecordedData()) {
       const filmstripSummary = filmstripTelemetry.getSummary();
       filmstripTelemetry.clear();
-      this.queue.push({
+      this.pushToQueue({
         kind: "filmstrip-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -617,7 +622,7 @@ export class PerfLogService {
     if (timelineZoomTelemetry.hasRecordedData()) {
       const zoomSummary = timelineZoomTelemetry.drain();
       if (zoomSummary) {
-        this.queue.push({
+        this.pushToQueue({
           kind: "timeline-zoom-rollup",
           sessionId,
           timestampEpochMs: Date.now(),
@@ -629,7 +634,7 @@ export class PerfLogService {
     // Flush the final media animation rollup window.
     if (mediaAnimationRollup.hasRecordedData()) {
       const animSummary = mediaAnimationRollup.flush();
-      this.queue.push({
+      this.pushToQueue({
         kind: "media-animation-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -650,7 +655,7 @@ export class PerfLogService {
       finalAudioPollRtt.n > 0 ||
       finalExtrapError.n > 0
     ) {
-      this.queue.push({
+      this.pushToQueue({
         kind: "frontend-av-sync",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -669,7 +674,7 @@ export class PerfLogService {
     // Flush the final worker & animation telemetry window so the partial interval is not lost.
     const finalWorkerRollup = workerPerfCollector.flush();
     if (finalWorkerRollup && finalWorkerRollup.totalOperations > 0) {
-      this.queue.push({
+      this.pushToQueue({
         kind: "worker-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -686,7 +691,7 @@ export class PerfLogService {
       Object.keys(finalTextSummary.rendererByKind).length > 0 ||
       finalTextSummary.animation.samples > 0
     ) {
-      this.queue.push({
+      this.pushToQueue({
         kind: "text-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -699,6 +704,10 @@ export class PerfLogService {
       this.workerErrorUnlisten = null;
     }
 
+    // Capture the Windows video-path record while the active session is still
+    // open. Late polls that resolve after this point are ignored by enqueue().
+    await this.pollWindowsVideoPathTelemetry(sessionId);
+
     // Null sessionId AFTER capturing it so flushQueue doesn't bail early.
     // We own the close from this point forward.
     this.sessionId = null;
@@ -707,6 +716,16 @@ export class PerfLogService {
     // Wait for any in-flight flush to land, then flush the final batch.
     if (this.flushInFlight) await this.flushInFlight;
     await this._flushQueueWithSession(sessionId);
+
+    // Quiesce any in-flight decode attempts before marking telemetry closed.
+    try {
+      await tauriInvoke<boolean>("quiesce_engine_telemetry", {
+        timeoutMs: 1500,
+        timeout_ms: 1500,
+      });
+    } catch {
+      // Ignore if unavailable
+    }
 
     // Freeze the native decode-attempt accounting before taking the final
     // snapshot. Guards that finish after this boundary are reported as
@@ -729,7 +748,7 @@ export class PerfLogService {
         "get_engine_telemetry",
       );
       if (finalEngineTelemetry) {
-        this.queue.push({
+        this.pushToQueue({
           kind: "engine-telemetry",
           sessionId,
           timestampEpochMs: Date.now(),
@@ -765,7 +784,7 @@ export class PerfLogService {
         ? await tauriInvoke<unknown>("get_multi_tier_native_telemetry")
         : null;
 
-      this.queue.push({
+      this.pushToQueue({
         kind: "multi-tier-optimization-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -786,7 +805,7 @@ export class PerfLogService {
     // the durable completion boundary, so it must be the last event in the
     // session rather than merely another close marker in the middle of the
     // final batch.
-    this.queue.push({
+    this.pushToQueue({
       kind: "session-footer",
       sessionId,
       timestampEpochMs: Date.now(),

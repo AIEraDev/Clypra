@@ -29,20 +29,32 @@
       "height": 50
     }
   ],
-  "clips": [],
-  "text_effects": [],
-  "text_templates": [
+  "clips": [
     {
-      "id": "template-1",
+      "id": "clip-template-1",
+      "kind": "text-template",
+      "role": "text",
       "trackId": "track-t1",
-      "templateId": "lower_third_clean",
+      "mediaId": "",
+      "name": "Lower Third Template",
       "startTime": 0,
       "duration": 30,
-      "parameters": {
-        "primaryText": "Lower Third Headline",
-        "secondaryText": "Secondary Descriptor",
+      "trimIn": 0,
+      "trimOut": 30,
+      "x": 150,
+      "y": 750,
+      "width": 650,
+      "height": 140,
+      "opacity": 1,
+      "rotation": 0,
+      "templateId": "lower-third-broadcast",
+      "templateControlValues": {
+        "headline": "Lower Third Headline",
+        "subline": "Secondary Descriptor",
         "accentColor": "#00AAFF"
       }
     }
-  ]
+  ],
+  "text_effects": [],
+  "text_templates": []
 }

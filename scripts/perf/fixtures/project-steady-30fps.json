@@ -21,7 +21,7 @@
     {
       "id": "asset-video-30",
       "name": "clip_1080p30_gop1s.mp4",
-      "path": "tests/fixtures/perf/clip_1080p30_gop1s.mp4",
+      "path": "/Users/AIEraDev/Documents/clypra-family/clypra/tests/fixtures/perf/clip_1080p30_gop1s.mp4",
       "type": "video",
       "duration": 35,
       "width": 1920,

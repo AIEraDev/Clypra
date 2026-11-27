@@ -613,28 +613,34 @@ impl NativeRenderSession {
             snapshot.quality
         };
         let mut streams = HashSet::new();
-        let mut leases = HashMap::new();
-        let mut actors = HashMap::new();
+        let mut unique_keys = Vec::new();
         for layer in &snapshot.project.video_layers {
             if layer.layer_id.ends_with(":subject-cutout") {
                 continue;
             }
             let key = (layer.video_path.clone(), layer.layer_id.clone());
             if streams.insert(key.clone()) {
-                leases.insert(
-                    key.clone(),
-                    acquire_preview_decoder_lease_for_stream(&layer.video_path, &layer.layer_id)
-                        .await?,
-                );
-                actors.insert(
-                    key,
-                    crate::filmstrip_engine::stream_actor::get_preview_decoder_actor_for_stream(
-                        &layer.video_path,
-                        &layer.layer_id,
-                    )
-                    .await?,
-                );
+                unique_keys.push(key);
             }
+        }
+        let open_tasks = unique_keys.into_iter().map(|(video_path, layer_id)| async move {
+            let (lease_res, actor_res) = tokio::join!(
+                acquire_preview_decoder_lease_for_stream(&video_path, &layer_id),
+                crate::filmstrip_engine::stream_actor::get_preview_decoder_actor_for_stream(
+                    &video_path,
+                    &layer_id,
+                ),
+            );
+            let lease = lease_res?;
+            let actor = actor_res?;
+            Ok::<_, String>(((video_path, layer_id), lease, actor))
+        });
+        let opened = futures_util::future::try_join_all(open_tasks).await?;
+        let mut leases = HashMap::with_capacity(opened.len());
+        let mut actors = HashMap::with_capacity(opened.len());
+        for (key, lease, actor) in opened {
+            leases.insert(key.clone(), lease);
+            actors.insert(key, actor);
         }
         Ok(Arc::new(Self {
             snapshot: RwLock::new(Arc::new(snapshot)),

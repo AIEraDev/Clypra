@@ -147,6 +147,48 @@ export const BUILTIN_PROJECT_TEMPLATES: ProjectTemplate[] = [
       { type: "audio", name: "Audio Track" },
     ],
   },
+  {
+    id: "football-highlights",
+    name: "Football Highlights",
+    description:
+      "Vertical highlight reel layout with match footage, replay, scoreboard and crowd sound tracks.",
+    aspectRatio: "9:16",
+    resolution: "1080×1920",
+    width: 1080,
+    height: 1920,
+    frameRate: 30,
+    category: "social",
+    badge: "9:16 Sports",
+    initialTracks: [
+      { type: "text", name: "Scoreboard & Captions" },
+      { type: "video", name: "Player Spotlight / Overlays" },
+      { type: "video", name: "Replay (slow-mo)" },
+      { type: "video", name: "Match Footage" },
+      { type: "audio", name: "Crowd & Whistle SFX" },
+      { type: "audio", name: "Music" },
+    ],
+  },
+  {
+    id: "football-highlights-16x9",
+    name: "Football Highlights (YouTube 16:9)",
+    description:
+      "Widescreen 16:9 1080p 60fps highlight reel layout with match footage, replay, scoreboard and crowd sound tracks.",
+    aspectRatio: "16:9",
+    resolution: "1920×1080",
+    width: 1920,
+    height: 1080,
+    frameRate: 60,
+    category: "video",
+    badge: "16:9 Sports",
+    initialTracks: [
+      { type: "text", name: "Scoreboard & Captions" },
+      { type: "video", name: "Player Spotlight / Overlays" },
+      { type: "video", name: "Replay (slow-mo)" },
+      { type: "video", name: "Match Footage" },
+      { type: "audio", name: "Crowd & Whistle SFX" },
+      { type: "audio", name: "Music" },
+    ],
+  },
 ];
 
 export function getTemplateById(id: string): ProjectTemplate | undefined {

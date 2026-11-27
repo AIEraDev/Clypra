@@ -732,6 +732,7 @@ pub fn run() {
             get_windows_video_path_telemetry,
             reset_session_telemetry,
             mark_engine_telemetry_closing,
+            quiesce_engine_telemetry,
             hide_native_surface,
             get_native_surface_status,
             configure_native_playback,
