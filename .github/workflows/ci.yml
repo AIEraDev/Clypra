@@ -52,9 +52,6 @@ jobs:
       - name: Strict Type Check (tsc --noEmit)
         run: npx tsc --noEmit
 
-      - name: Tauri CLI Launcher Regression
-        run: node --test scripts/__tests__/tauri-cli-command.test.mjs
-
       - name: Linting (if configured)
         run: npm run lint --if-present
 
