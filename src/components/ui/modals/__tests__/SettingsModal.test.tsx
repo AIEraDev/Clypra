@@ -45,7 +45,7 @@ describe("SettingsModal — Redesigned Experience", () => {
     useUIStore.setState({ settingsInitialTab: null });
   });
 
-  it("renders all 6 canonical tabs and excludes the removed Performance tab", () => {
+  it("renders all 7 canonical tabs including Preview Diagnostics", () => {
     render(<SettingsModal isOpen={true} onClose={vi.fn()} />);
 
     // Verify presence of all 6 supported tabs
@@ -54,12 +54,8 @@ describe("SettingsModal — Redesigned Experience", () => {
     expect(screen.getByRole("button", { name: /shortcuts/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /auto-captions/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /storage & cache/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /preview diagnostics/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /about/i })).toBeDefined();
-
-    // PERFORMANCE TAB REMOVAL VERIFICATION:
-    // Neither "Preview Performance" nor "Diagnostics" tab should exist in the sidebar
-    expect(screen.queryByRole("button", { name: /preview performance/i })).toBeNull();
-    expect(screen.queryByRole("button", { name: /diagnostics/i })).toBeNull();
   });
 
   it("switches tabs when clicking on sidebar buttons", () => {
