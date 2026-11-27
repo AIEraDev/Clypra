@@ -1,12 +1,22 @@
 use std::time::Instant;
+use std::sync::{Mutex, MutexGuard};
 
 use crate::cold_start::milestones::record_first_sound;
 use crate::cold_start::models::{bucket_file_size_log2_mb, MAX_DISTINCT_STAGES, RING_BUFFER_CAPACITY};
 use crate::cold_start::os::classify_media_location;
 use crate::cold_start::recorder::{force_process_start, get_report, record_span, SpanGuard};
 
+static COLD_START_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+fn lock_cold_start_tests() -> MutexGuard<'static, ()> {
+    COLD_START_TEST_LOCK
+        .lock()
+        .expect("cold-start test lock must not be poisoned")
+}
+
 #[test]
 fn test_spans_ordered_and_monotonic() {
+    let _test_lock = lock_cold_start_tests();
     force_process_start();
     let guard1 = SpanGuard::start("test_monotonic_1");
     std::thread::sleep(std::time::Duration::from_millis(5));
@@ -37,6 +47,7 @@ fn test_spans_ordered_and_monotonic() {
 
 #[test]
 fn test_span_guard_early_return_records_ok_false() {
+    let _test_lock = lock_cold_start_tests();
     force_process_start();
     fn failing_operation_with_question_mark() -> Result<(), &'static str> {
         let _guard = SpanGuard::start("test_guard_early_return");
@@ -65,6 +76,7 @@ fn test_span_guard_early_return_records_ok_false() {
 
 #[test]
 fn test_span_guard_panic_records_ok_false() {
+    let _test_lock = lock_cold_start_tests();
     force_process_start();
     let panic_result = std::panic::catch_unwind(|| {
         let _guard = SpanGuard::start("test_guard_panic");
@@ -86,6 +98,7 @@ fn test_span_guard_panic_records_ok_false() {
 
 #[test]
 fn test_span_guard_finish_ok_records_ok_true() {
+    let _test_lock = lock_cold_start_tests();
     force_process_start();
     let mut guard = SpanGuard::start("test_guard_success");
     guard.set_waited(500);
@@ -104,6 +117,7 @@ fn test_span_guard_finish_ok_records_ok_true() {
 
 #[test]
 fn test_ring_bound_and_aggregate_overflow() {
+    let _test_lock = lock_cold_start_tests();
     force_process_start();
     let initial_report = get_report();
     let initial_dropped = initial_report.dropped_spans;
@@ -132,6 +146,7 @@ fn test_ring_bound_and_aggregate_overflow() {
 
 #[test]
 fn test_stage_keys_bounded_to_64() {
+    let _test_lock = lock_cold_start_tests();
     force_process_start();
     // Push spans with 80 distinct stage names
     for i in 0..80 {
@@ -182,6 +197,7 @@ fn test_classify_media_location_samples() {
 
 #[test]
 fn test_report_serialization_keys() {
+    let _test_lock = lock_cold_start_tests();
     force_process_start();
     let report = get_report();
     let json = serde_json::to_string(&report).expect("ColdStartReport must serialize");
