@@ -35,6 +35,7 @@
 #![cfg(target_os = "windows")]
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 use std::sync::Mutex as StdMutex;
 use std::time::Instant;
 
@@ -47,6 +48,7 @@ use windows::Win32::Graphics::Direct3D12::{
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_NV12;
 use windows::Win32::Graphics::Dxgi::IDXGIResource1;
 
+use crate::wgpu_compositor::dxgi_counters::KeyedMutexObservation;
 use crate::wgpu_compositor::render_path::DxgiFailureReason;
 
 // ---------------------------------------------------------------------------
@@ -71,8 +73,8 @@ pub struct DxgiAttemptMetadata {
     /// Raw HRESULT from the failing COM call, if one was made.
     /// `None` on success or when failure occurred before any COM call.
     pub hresult: Option<u32>,
-    /// Whether the D3D11 texture exposes IDXGIKeyedMutex.
-    pub has_keyed_mutex: bool,
+    /// Whether the D3D11 texture exposes IDXGIKeyedMutex, when probed.
+    pub keyed_mutex: KeyedMutexObservation,
     /// Wall-clock nanoseconds elapsed for the entire import attempt.
     pub attempt_duration_ns: u64,
 }
@@ -90,7 +92,7 @@ pub struct DxgiFirstFailureEvent {
     /// Raw HRESULT, if available from a COM call.
     pub hresult: Option<u32>,
     /// Whether the D3D11 texture exposed IDXGIKeyedMutex at the time of failure.
-    pub has_keyed_mutex: bool,
+    pub keyed_mutex: KeyedMutexObservation,
 }
 
 // ---------------------------------------------------------------------------
@@ -100,11 +102,9 @@ pub struct DxgiFirstFailureEvent {
 /// Maximum diagnostic ring size.  At 300 × ~64 bytes ≈ 19 KB maximum.
 const ATTEMPT_RING_CAPACITY: usize = 300;
 
-static ATTEMPT_RING: StdMutex<VecDeque<DxgiAttemptMetadata>> =
-    StdMutex::new(VecDeque::new());
+static ATTEMPT_RING: StdMutex<VecDeque<DxgiAttemptMetadata>> = StdMutex::new(VecDeque::new());
 
-static FIRST_FAILURE: StdMutex<Option<DxgiFirstFailureEvent>> =
-    StdMutex::new(None);
+static FIRST_FAILURE: StdMutex<Option<DxgiFirstFailureEvent>> = StdMutex::new(None);
 
 /// Drain all diagnostic records accumulated since the last call.
 ///
@@ -146,6 +146,13 @@ fn classify_hresult(hresult: u32) -> (DxgiFailureReason, u32) {
 }
 
 fn record_attempt(meta: DxgiAttemptMetadata) {
+    crate::wgpu_compositor::dxgi_counters::DXGI_COUNTERS.record_attempt(
+        meta.success,
+        meta.failure_reason,
+        meta.hresult,
+        meta.keyed_mutex,
+        meta.attempt_duration_ns,
+    );
     if let Ok(mut ring) = ATTEMPT_RING.lock() {
         if ring.len() >= ATTEMPT_RING_CAPACITY {
             ring.pop_front();
@@ -175,6 +182,10 @@ fn record_first_failure(event: DxgiFirstFailureEvent) {
 pub struct D3d11SharedFrame {
     /// DXGI NT shared handle (closed automatically on Drop).
     pub nt_handle: HANDLE,
+    /// Session-seeded identity hash of the source texture; never a raw pointer.
+    pub texture_identity_hash: u64,
+    /// Shared ownership registration for the underlying texture slice.
+    surface_ownership: Arc<crate::wgpu_compositor::dxgi_hazards::DxgiSurfaceOwnership>,
     /// Texture array slice that contains this frame (D3D11VA array decode).
     pub array_index: u32,
     /// Decoded luma width in pixels.
@@ -212,6 +223,8 @@ impl D3d11SharedFrame {
             if ret.is_ok() && !target_handle.is_invalid() {
                 Some(Self {
                     nt_handle: target_handle,
+                    texture_identity_hash: self.texture_identity_hash,
+                    surface_ownership: Arc::clone(&self.surface_ownership),
                     array_index: self.array_index,
                     width: self.width,
                     height: self.height,
@@ -284,12 +297,20 @@ pub unsafe fn extract_shared_handle(
         return None;
     }
 
+    let texture_identity_hash = crate::wgpu_compositor::hash_texture_identity(texture_raw as usize);
+    let surface_ownership = Arc::new(crate::wgpu_compositor::register_surface(
+        texture_identity_hash,
+        array_index,
+    ));
+
     // Read the texture dimensions.
     let mut desc = D3D11_TEXTURE2D_DESC::default();
     texture.GetDesc(&mut desc);
 
     Some(D3d11SharedFrame {
         nt_handle,
+        texture_identity_hash,
+        surface_ownership,
         array_index,
         width: desc.Width,
         height: desc.Height,
@@ -310,6 +331,8 @@ pub struct ImportedNv12Texture {
     pub y_view: wgpu::TextureView,
     /// `TextureAspect::Plane1` — chroma (UV), format-compatible with `Rg8Unorm`.
     pub uv_view: wgpu::TextureView,
+    /// Whether the underlying D3D12 shared resource exposed `IDXGIKeyedMutex`.
+    pub has_keyed_mutex: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +373,7 @@ pub fn import_into_wgpu(
             success: false,
             failure_reason: Some(DxgiFailureReason::UnsupportedFormat),
             hresult: None,
-            has_keyed_mutex: false,
+            keyed_mutex: KeyedMutexObservation::Unprobed,
             attempt_duration_ns,
         });
         return Err(DxgiFailureReason::UnsupportedFormat);
@@ -361,13 +384,17 @@ pub fn import_into_wgpu(
     let width = shared.width;
     let height = shared.height;
 
-    // Error type carries: (reason, raw_hresult, has_keyed_mutex).
-    type InnerErr = (DxgiFailureReason, Option<u32>, bool);
+    // Error type carries: (reason, raw_hresult, keyed-mutex observation).
+    type InnerErr = (DxgiFailureReason, Option<u32>, KeyedMutexObservation);
 
     // `shared` is dropped at end of scope — D3d11SharedFrame::drop closes nt_handle.
     let result: Result<ImportedNv12Texture, InnerErr> = unsafe {
         device.as_hal::<Dx12, _, Result<ImportedNv12Texture, InnerErr>>(|hal_device| {
-            let hal_device = hal_device.ok_or((DxgiFailureReason::ImportFailed, None, false))?;
+            let hal_device = hal_device.ok_or((
+                DxgiFailureReason::ImportFailed,
+                None,
+                KeyedMutexObservation::Unprobed,
+            ))?;
 
             // Get the raw ID3D12Device so we can open the DXGI shared handle.
             let d3d12_device: &ID3D12Device = hal_device.raw_device();
@@ -379,21 +406,28 @@ pub fn import_into_wgpu(
                 .OpenSharedHandle(nt_handle, &mut d3d12_resource)
                 .map_err(|e| {
                     let (reason, hr) = classify_hresult(e.code().0 as u32);
-                    (reason, Some(hr), false)
+                    (reason, Some(hr), KeyedMutexObservation::Unprobed)
                 })?;
-            let d3d12_resource: ID3D12Resource =
-                d3d12_resource.ok_or((DxgiFailureReason::InvalidTexture, None, false))?;
+            let d3d12_resource: ID3D12Resource = d3d12_resource.ok_or((
+                DxgiFailureReason::InvalidTexture,
+                None,
+                KeyedMutexObservation::Unprobed,
+            ))?;
 
             // Probe keyed mutex: some D3D11VA decoders use it for cross-device sync.
             use windows::Win32::Graphics::Dxgi::IDXGIKeyedMutex;
-            let has_keyed_mutex = d3d12_resource.cast::<IDXGIKeyedMutex>().is_ok();
+            let keyed_mutex = if d3d12_resource.cast::<IDXGIKeyedMutex>().is_ok() {
+                KeyedMutexObservation::Present
+            } else {
+                KeyedMutexObservation::Absent
+            };
 
             // Verify the format is NV12 as expected.
             let resource_desc: D3D12_RESOURCE_DESC = d3d12_resource.GetDesc();
             if resource_desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D
                 || resource_desc.Format != DXGI_FORMAT_NV12
             {
-                return Err((DxgiFailureReason::UnsupportedFormat, None, has_keyed_mutex));
+                return Err((DxgiFailureReason::UnsupportedFormat, None, keyed_mutex));
             }
 
             // Invariant 1: Catch array_index out of bounds for the texture array.
@@ -403,7 +437,7 @@ pub fn import_into_wgpu(
                 log::warn!(
                     "[dxgi_import] array_index {array_index} >= DepthOrArraySize {array_size}"
                 );
-                return Err((DxgiFailureReason::WrongArraySlice, None, has_keyed_mutex));
+                return Err((DxgiFailureReason::WrongArraySlice, None, keyed_mutex));
             }
 
             // Wrap the D3D12 resource as a wgpu HAL texture.
@@ -466,6 +500,7 @@ pub fn import_into_wgpu(
                 texture,
                 y_view,
                 uv_view,
+                has_keyed_mutex: matches!(keyed_mutex, KeyedMutexObservation::Present),
             })
         })
     };
@@ -475,30 +510,34 @@ pub fn import_into_wgpu(
 
     match result {
         Ok(texture) => {
+            let keyed_mutex =
+                crate::wgpu_compositor::dxgi_counters::success_record_keyed_mutex_observation(
+                    texture.has_keyed_mutex,
+                );
             record_attempt(DxgiAttemptMetadata {
                 attempted_at: attempt_start,
                 success: true,
                 failure_reason: None,
                 hresult: None,
-                has_keyed_mutex: false,
+                keyed_mutex,
                 attempt_duration_ns,
             });
             Ok(texture)
         }
-        Err((reason, hresult, has_keyed_mutex)) => {
+        Err((reason, hresult, keyed_mutex)) => {
             record_attempt(DxgiAttemptMetadata {
                 attempted_at: attempt_start,
                 success: false,
                 failure_reason: Some(reason),
                 hresult,
-                has_keyed_mutex,
+                keyed_mutex,
                 attempt_duration_ns,
             });
             record_first_failure(DxgiFirstFailureEvent {
                 observed_at: attempt_start,
                 reason,
                 hresult,
-                has_keyed_mutex,
+                keyed_mutex,
             });
             Err(reason)
         }

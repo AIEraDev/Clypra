@@ -26,17 +26,32 @@ import {
   type StickerItem,
 } from "@/features/stickers/api/stickersApi";
 import { platform } from "@/core/platform";
+import { useTranslation } from "@/i18n";
+import { SubTabPills } from "@/components/editor/sidebar/SubTabPills";
+import { useStickerUiStore } from "@/features/stickers/store/stickerUiStore";
+import { stickerLibraryManager } from "@/features/stickers/library/stickerLibrary";
+import { stickerProviders } from "@/features/stickers/providers/stickerProviders";
 
 const ALL_CATEGORY = "all";
 
 export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
-  const [searchQuery, setSearchQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState<string>(ALL_CATEGORY);
+  const { t } = useTranslation();
+  const {
+    activeSubTab,
+    searchQuery,
+    activeCategory,
+    yoursFilter,
+    setActiveSubTab,
+    setSearchQuery,
+    setActiveCategory,
+    setYoursFilter,
+  } = useStickerUiStore();
   const [stickers, setStickers] = useState<StickerItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isNetworkError, setIsNetworkError] = useState(false);
   const [isOfflineMode, setIsOfflineMode] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
 
   // Initialize stickers cache and seed starters
   useEffect(() => {
@@ -50,8 +65,13 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     setError(null);
     setIsNetworkError(false);
 
-    const promise =
-      activeCategory === ALL_CATEGORY
+    const promise: Promise<StickerItem[]> = activeSubTab === "yours"
+      ? stickerProviders.yours
+          .list(yoursFilter)
+          .then((page) => page.items)
+      : activeSubTab === "shapes"
+        ? stickerProviders.shapes.list("all").then((page) => page.items)
+      : activeCategory === ALL_CATEGORY
         ? StickersApi.getStickersIndex()
         : StickersApi.getStickersByCategory(activeCategory as StickerCategory);
 
@@ -95,21 +115,47 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
   };
 
   useEffect(() => {
+    if (activeSubTab === "giphy") {
+      setStickers([]);
+      setLoading(false);
+      return;
+    }
     const cleanup = fetchStickers();
     return cleanup;
-  }, [activeCategory]);
+  }, [activeCategory, activeSubTab, yoursFilter]);
+
+  const handleImport = async () => {
+    setIsImporting(true);
+    setError(null);
+    try {
+      const selected = await platform.openFileDialog({
+        multiple: true,
+        filters: [{ name: "Sticker", extensions: ["json", "png", "svg", "webp"] }],
+      });
+      if (!selected) return;
+      for (const file of selected) {
+        await stickerLibraryManager.importFile(file);
+      }
+      setYoursFilter("imported");
+      setActiveSubTab("yours");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Sticker import failed");
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   const filteredStickers = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
-    let filtered = stickers;
+    let filtered = activeSubTab === "stickers" || activeSubTab === "shapes" || activeSubTab === "yours" ? stickers : [];
 
-    if (activeCategory !== ALL_CATEGORY) {
+    if (activeSubTab === "stickers" && activeCategory !== ALL_CATEGORY) {
       filtered = filtered.filter(
         (s) => s.category.toLowerCase() === activeCategory.toLowerCase(),
       );
     }
 
-    if (query) {
+    if (query && (activeSubTab === "stickers" || activeSubTab === "yours")) {
       filtered = filtered.filter(
         (s) =>
           s.name.toLowerCase().includes(query) ||
@@ -118,7 +164,7 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
     }
 
     return filtered;
-  }, [stickers, searchQuery, activeCategory]);
+  }, [stickers, searchQuery, activeCategory, activeSubTab]);
 
   const formatCategoryName = (category: string) => {
     if (category === ALL_CATEGORY) return "All";
@@ -127,6 +173,66 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+      <div className="flex items-center gap-2.5 p-1 border-b border-border/50 shrink-0 bg-surface/10">
+        <button
+          type="button"
+          disabled={isImporting}
+          onClick={() => void handleImport()}
+          className={`shrink-0 flex items-center justify-center gap-1 h-min px-2 py-0.5 bg-accent/10 rounded-sm text-[12px] text-accent-soft border border-accent/20 ${isImporting ? "cursor-not-allowed opacity-60" : "cursor-pointer hover:bg-accent/20"}`}
+          aria-label={t("stickers.import")}
+          title={t("stickers.import")}
+        >
+          {t("stickers.import")}
+        </button>
+        <div className="w-px h-5 bg-border/80 shrink-0" />
+        <SubTabPills
+          value={activeSubTab}
+          onChange={setActiveSubTab}
+          ariaLabel={t("sidebar.tabs.stickers")}
+          items={[
+            { value: "stickers", label: t("stickers.tab.stickers") },
+            { value: "shapes", label: t("stickers.tab.shapes") },
+            { value: "yours", label: t("stickers.tab.yours", { count: activeSubTab === "yours" ? stickers.length : 0 }) },
+            { value: "giphy", label: t("stickers.tab.giphy"), disabled: true },
+          ]}
+        />
+      </div>
+
+      {activeSubTab !== "stickers" && (
+        activeSubTab === "shapes" || activeSubTab === "yours" ? (
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-1.5">
+          {!loading && filteredStickers.length > 0 ? (
+            <div className="grid grid-cols-3 gap-1.5">
+              {filteredStickers.map((sticker) => (
+                <StickerCard key={sticker.id} sticker={sticker} onAddToTimeline={onAddToTimeline} />
+              ))}
+            </div>
+          ) : !loading ? (
+            <div className="flex items-center justify-center h-full p-6 text-center">
+              <div>
+                <Smile className="mx-auto mb-2 h-6 w-6 text-text-muted opacity-60" />
+                <p className="text-xs font-semibold text-text-primary">{t("stickers.empty.title")}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-text-muted">{t("stickers.empty.description")}</p>
+              </div>
+            </div>
+          ) : null}
+        </div>
+        ) : (
+        <div className="flex-1 flex items-center justify-center p-6 text-center">
+          <div>
+            <Smile className="mx-auto mb-2 h-6 w-6 text-text-muted opacity-60" />
+            <p className="text-xs font-semibold text-text-primary">
+              {t("stickers.empty.title")}
+            </p>
+            <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
+              {t("stickers.empty.description")}
+            </p>
+          </div>
+        </div>
+        )
+      )}
+
+      {activeSubTab === "stickers" && <>
       {/* Search Input Bar */}
       <div className="p-1 border-b border-border/40">
         <div className="relative">
@@ -135,7 +241,7 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search stickers & emojis..."
+            placeholder={t("stickers.search")}
             className="w-full bg-surface-raised/40 border border-border/40 hover:border-border/80 rounded-lg pl-8 pr-3 py-1.5 text-xs text-text-primary focus:outline-none transition-colors"
           />
         </div>
@@ -155,7 +261,7 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
               : "text-text-muted"
           }`}
         >
-          All
+          {t("stickers.category.all")}
         </button>
         {STICKER_CATEGORIES.map((category) => (
           <button
@@ -176,7 +282,7 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
       {isOfflineMode && (
         <div className="px-2 py-1 bg-amber-500/10 border-b border-amber-500/20 text-amber-300 text-[10px] flex items-center gap-1.5 shrink-0">
           <WifiOff size={12} />
-          <span>Offline mode: Ready-to-use starter stickers loaded.</span>
+            <span>{t("stickers.offline")}</span>
         </div>
       )}
 
@@ -185,7 +291,7 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
         {loading && (
           <div className="flex items-center justify-center gap-2 py-12 text-xs text-text-muted">
             <Loader2 className="h-4 w-4 animate-spin text-accent" />
-            <span>Loading sticker catalog...</span>
+            <span>{t("stickers.loading")}</span>
           </div>
         )}
 
@@ -207,10 +313,10 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
           <div className="rounded-lg border border-border bg-surface-raised/40 p-6 text-center">
             <Smile className="mx-auto mb-2 h-6 w-6 text-text-muted opacity-60" />
             <p className="text-xs font-semibold text-text-primary">
-              No stickers found
+              {t("stickers.empty.title")}
             </p>
             <p className="mt-1 text-[11px] leading-relaxed text-text-muted">
-              Try a different search query or select another category.
+              {t("stickers.empty.description")}
             </p>
           </div>
         )}
@@ -229,6 +335,7 @@ export const StickersTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
             </div>
           )}
       </div>
+      </>}
     </div>
   );
 };
@@ -250,6 +357,7 @@ const StickerCard: React.FC<{
   const isDownloading = downloadState?.status === "downloading";
 
   const handlePreview = async () => {
+    if (sticker.providerId === "yours" || sticker.providerId === "shapes") return;
     if (!isDownloadedFlag) {
       try {
         await startDownload(sticker);
@@ -264,10 +372,12 @@ const StickerCard: React.FC<{
       if (!cached) return;
 
       const appCache = await platform.appCacheDir();
+      const format = sticker.kind === "lottie" || sticker.lottieUrl ? "lottie" : "static";
+      const imagePath = format === "static" ? cached.localAnimationPath || cached.localImagePath : cached.localImagePath;
       const absoluteImagePath =
-        cached.localImagePath && !cached.localImagePath.startsWith("data:")
-          ? await platform.joinPaths(appCache, cached.localImagePath)
-          : cached.localImagePath || "";
+        imagePath && !imagePath.startsWith("data:")
+          ? await platform.joinPaths(appCache, imagePath)
+          : imagePath || "";
       const absoluteAnimationPath =
         cached.localAnimationPath &&
         !cached.localAnimationPath.startsWith("bundled://")
@@ -281,8 +391,8 @@ const StickerCard: React.FC<{
         type: "image",
         duration: 3.0,
         size: cached.sizeBytes || 0,
-        stickerFormat: "lottie",
-        stickerAnimationPath: absoluteAnimationPath,
+        stickerFormat: format,
+        stickerAnimationPath: format === "lottie" ? absoluteAnimationPath : undefined,
         stickerSourceId: sticker.id,
       };
 
@@ -295,7 +405,7 @@ const StickerCard: React.FC<{
   const handleAddToTimeline = async (e: React.MouseEvent) => {
     e.stopPropagation();
 
-    if (!isDownloadedFlag) {
+    if (sticker.providerId !== "yours" && sticker.providerId !== "shapes" && !isDownloadedFlag) {
       try {
         await startDownload(sticker);
       } catch (error) {

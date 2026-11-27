@@ -283,6 +283,72 @@ export function lintRecords(records, options = {}) {
     );
   }
 
+  let terminalFooterSeen = false;
+  for (const record of valid) {
+    if (terminalFooterSeen) {
+      addError(
+        errors,
+        record.line,
+        "record-after-session-footer",
+        "no records may be emitted after the terminal session-footer",
+      );
+    }
+    if (record.kind === "session-footer" && record.payload.status === "closed") {
+      if (terminalFooterSeen) {
+        addError(errors, record.line, "duplicate-session-footer", "session-footer must be terminal and emitted once");
+      }
+      terminalFooterSeen = true;
+    }
+
+    if (record.kind !== "windows-video-path") continue;
+    if (record.scope !== "native.windows.video") {
+      addError(errors, record.line, "invalid-windows-video-scope", "windows-video-path must use native.windows.video scope");
+    }
+    const payload = record.payload;
+    if (!["windows", "synthetic"].includes(payload.platform)) {
+      addError(errors, record.line, "invalid-windows-video-platform", "windows-video-path platform must be windows or synthetic");
+    }
+    if (typeof payload.synthetic !== "boolean") {
+      addError(errors, record.line, "invalid-windows-video-synthetic", "windows-video-path synthetic must be boolean");
+    }
+    for (const field of ["dxgiCounters", "hazardCounters", "framesBySource"]) {
+      if (!asObject(payload[field])) {
+        addError(errors, record.line, "invalid-windows-video-payload", `windows-video-path ${field} must be an object`);
+      }
+    }
+    const dxgiCounters = asObject(payload.dxgiCounters);
+    if (dxgiCounters) {
+      const keyedMutexFields = [
+        "keyedMutexPresent",
+        "keyedMutexAbsent",
+        "keyedMutexUnprobed",
+      ];
+      if (keyedMutexFields.some((field) => !Number.isInteger(dxgiCounters[field]) || dxgiCounters[field] < 0)) {
+        addError(errors, record.line, "invalid-windows-keyed-mutex-counters", "keyed-mutex counters must be non-negative integers");
+      } else if (
+        dxgiCounters.keyedMutexPresent +
+          dxgiCounters.keyedMutexAbsent +
+          dxgiCounters.keyedMutexUnprobed !==
+        dxgiCounters.attempts
+      ) {
+        addError(errors, record.line, "windows-keyed-mutex-counter-mismatch", "present + absent + unprobed keyed-mutex observations must equal attempts");
+      }
+    }
+    if (!Array.isArray(payload.adapterFacts) || !Array.isArray(payload.latchEvents)) {
+      addError(errors, record.line, "invalid-windows-video-payload", "windows-video-path adapterFacts and latchEvents must be arrays");
+    }
+    for (const event of Array.isArray(payload.latchEvents) ? payload.latchEvents : []) {
+      const eventObject = asObject(event);
+      if (!eventObject || typeof eventObject.reasonCode !== "string" || !Number.isInteger(eventObject.count) || eventObject.count < 1) {
+        addError(errors, record.line, "invalid-windows-latch-event", "latch events require reasonCode and a positive integer count");
+        continue;
+      }
+      if (eventObject.firstFrameIndex !== null && eventObject.firstFrameIndex !== undefined && !Number.isInteger(eventObject.firstFrameIndex)) {
+        addError(errors, record.line, "invalid-windows-latch-frame-index", "latch event firstFrameIndex must be an integer or null");
+      }
+    }
+  }
+
   let previousTimestamp = null;
   let previousSeq = null;
   for (const record of valid) {

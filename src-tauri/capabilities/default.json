@@ -26,10 +26,6 @@
     "dialog:default",
     "core:path:default",
     "fs:default",
-    "updater:default",
-    "process:default",
-    "process:allow-exit",
-    "process:allow-restart",
     {
       "identifier": "fs:allow-read",
       "allow": [

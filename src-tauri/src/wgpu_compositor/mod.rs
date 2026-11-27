@@ -24,6 +24,20 @@ pub use render_path::{
     PreviewRenderError,
 };
 
+pub mod dxgi_counters;
+pub use dxgi_counters::{
+    DxgiCounters, DxgiCountersSnapshot, KeyedMutexObservation, DXGI_COUNTERS,
+};
+
+pub mod dxgi_hazards;
+pub use dxgi_hazards::{
+    hash_texture_identity, record_lookahead_depth, register_surface, release_surface,
+    DxgiHazardSnapshot,
+};
+
+pub mod dxgi_fault_injection;
+pub use dxgi_fault_injection::inject_synthetic_dxgi_observations;
+
 pub mod frame_resource;
 pub use frame_resource::{
     ColorMatrix, ColorPrimaries, ColorRange, CpuFrame, FrameColorInfo, FrameResource,
@@ -143,8 +157,8 @@ pub use scopes::{
 #[cfg(target_os = "windows")]
 pub mod dxgi_import;
 
-/// Zero-copy VideoToolbox → Metal → wgpu texture import (macOS only).
-#[cfg(target_os = "macos")]
+/// Zero-copy VideoToolbox → Metal → wgpu texture import (Apple platforms).
+#[cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod metal_import;
 
 

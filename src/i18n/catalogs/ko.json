@@ -693,5 +693,17 @@
   "aiPlan.op.trim": "클립 자르기",
   "aiPlan.op.addText": "텍스트 추가",
   "aiPlan.toggleOp": "편집 {{index}} 전환",
-  "aiPlan.markersCount": "타임라인 마커 {{count}}개"
+  "aiPlan.markersCount": "타임라인 마커 {{count}}개",
+  "stickers.import": "가져오기",
+  "stickers.tab.stickers": "스티커",
+  "stickers.tab.shapes": "도형",
+  "stickers.tab.yours": "내 스티커 ({{count}})",
+  "stickers.tab.giphy": "GIPHY",
+  "stickers.search": "스티커 및 이모지 검색…",
+  "stickers.category.all": "전체",
+  "stickers.category.trending": "인기",
+  "stickers.offline": "오프라인 모드: 시작 스티커를 사용할 수 있습니다.",
+  "stickers.loading": "스티커 카탈로그 로드 중…",
+  "stickers.empty.title": "스티커를 찾을 수 없습니다",
+  "stickers.empty.description": "다른 검색어나 카테고리를 시도해 보세요."
 }

@@ -42,6 +42,8 @@ import { resolveTextTemplateArtifact } from "@clypra-studio/engine";
 import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { getPreviewInteractionCoordinator } from "@/core/interactions/PreviewInteractionCoordinator";
 import { getFrameStartTime } from "@/lib/utils/frameTime";
+import { resolveSticker } from "@/features/stickers/providers/stickerProviders";
+import type { StickerRef } from "@/features/stickers/types";
 
 export interface TimelinePlacementOptions {
   item: any;
@@ -479,8 +481,39 @@ export class TimelinePlacementEngine {
 
       // ─── 4. Stickers ────────────────────────────────────────────────────────
       if (type === "stickers") {
-        const cachedSticker = await resolveCachedSticker(item.id);
-        if (!cachedSticker) return { success: false, error: "Sticker not cached" };
+        const isBundled = STARTER_STICKERS.some((starter) => starter.id === item.id);
+        const stickerRef: StickerRef = item.stickerRef ?? {
+          providerId: item.providerId ?? (isBundled ? "bundled" : "catalog"),
+          itemId: item.id,
+          format:
+            isBundled || item.kind === "lottie" || Boolean(item.lottieUrl)
+              ? "lottie"
+              : item.kind === "gif"
+                ? "gif"
+                : item.kind === "webp" && item.animated
+                  ? "animated-webp"
+                  : item.kind === "apng"
+                    ? "apng"
+                    : "static",
+          shape: item.shape,
+          license: item.license
+            ? {
+                spdx: item.license.spdx,
+                author: item.license.author,
+                attributionRequired: item.license.attributionRequired,
+                sourceUrl: item.license.sourceUrl,
+                attributionText: item.license.attributionText,
+              }
+            : undefined,
+        };
+        const resolution = await resolveSticker(stickerRef);
+        if (resolution.kind === "unavailable") {
+          return { success: false, error: `Sticker unavailable: ${resolution.reason}` };
+        }
+        const artifact = resolution.artifact;
+        if (artifact.kind !== "lottie" && artifact.kind !== "static" && artifact.kind !== "imported" && artifact.kind !== "shape") {
+          return { success: false, error: "Sticker format is not supported for placement" };
+        }
 
         let appCache = "";
         try {
@@ -488,7 +521,9 @@ export class TimelinePlacementEngine {
         } catch {
           appCache = "";
         }
-        const relativePath = cachedSticker.localImagePath || "";
+        const relativePath = artifact.kind === "static" || artifact.kind === "imported"
+          ? artifact.localPath
+          : artifact.thumbnailPath || "";
         if (!relativePath) return { success: false, error: "Sticker image path missing" };
 
         const absolutePath = isExternalOrDirectPath(relativePath)
@@ -496,19 +531,15 @@ export class TimelinePlacementEngine {
           : appCache
             ? await platform.joinPaths(appCache, relativePath)
             : relativePath;
-        const isLottie = Boolean(
-          cachedSticker.localAnimationPath &&
-            (cachedSticker.localAnimationPath.endsWith(".json") ||
-             cachedSticker.localAnimationPath.startsWith("bundled://") ||
-             item.lottieUrl),
-        );
+        const isLottie = artifact.kind === "lottie" || artifact.kind === "shape";
+        const animationPath = artifact.kind === "lottie" ? artifact.localAnimationPath : undefined;
         const absoluteAnimationPath =
-          isLottie && cachedSticker.localAnimationPath
-            ? isExternalOrDirectPath(cachedSticker.localAnimationPath)
-              ? cachedSticker.localAnimationPath
+          isLottie && animationPath
+            ? isExternalOrDirectPath(animationPath)
+              ? animationPath
               : appCache
-                ? await platform.joinPaths(appCache, cachedSticker.localAnimationPath)
-                : cachedSticker.localAnimationPath
+                ? await platform.joinPaths(appCache, animationPath)
+                : animationPath
             : undefined;
 
         const mediaAsset: MediaAsset = {
@@ -517,10 +548,11 @@ export class TimelinePlacementEngine {
           path: absolutePath,
           type: "image",
           duration: 3.0,
-          size: cachedSticker.sizeBytes || 0,
+          size: 0,
           stickerFormat: isLottie ? "lottie" : "static",
           stickerAnimationPath: absoluteAnimationPath,
           stickerSourceId: item.id,
+          stickerRef,
           width: 400,
           height: 400,
         };

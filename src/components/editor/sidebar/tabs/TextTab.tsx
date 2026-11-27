@@ -30,6 +30,8 @@ import { EffectPreview as NewEffectPreview } from "@/features/text-effects/compo
 import { TemplateGrid } from "@/features/text-templates/components/TemplateGrid";
 import { useFavoritesStore } from "@/store/favoritesStore";
 import { toast } from "@/lib/toast";
+import { useTranslation } from "@/i18n";
+import { SubTabPills } from "@/components/editor/sidebar/SubTabPills";
 
 /**
  * Generates highly realistic, context-aware subtitle lines based on the active clip filename and path.
@@ -135,6 +137,7 @@ const generateContextualCaptions = (
 };
 
 export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<
     "effects" | "templates" | "yours" | "captions"
   >("effects");
@@ -661,35 +664,17 @@ export const TextTab: React.FC<TabProps> = ({ onAddToTimeline }) => {
 
         <div className="w-px h-5 bg-border/80 shrink-0" />
 
-        <div
-          className="grow overflow-x-auto flex items-center gap-2 pb-0.5 whitespace-nowrap"
-          style={{ scrollbarWidth: "none" }}
-        >
-          <button
-            onClick={() => handleTabChange("effects")}
-            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "effects" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
-          >
-            Text Effects
-          </button>
-          <button
-            onClick={() => handleTabChange("templates")}
-            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "templates" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
-          >
-            Templates
-          </button>
-          <button
-            onClick={() => handleTabChange("yours")}
-            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "yours" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
-          >
-            Favorites ({favorites.length})
-          </button>
-          <button
-            onClick={() => handleTabChange("captions")}
-            className={`px-2 py-0.5 rounded-sm text-xs font-semibold transition-all cursor-pointer ${activeTab === "captions" ? "bg-accent text-white" : "text-text-muted hover:text-text-primary hover:bg-surface-hover"}`}
-          >
-            Captions
-          </button>
-        </div>
+        <SubTabPills
+          value={activeTab}
+          onChange={handleTabChange}
+          ariaLabel={t("sidebar.tabs.text")}
+          items={[
+            { value: "effects", label: t("effects.textEffects") },
+            { value: "templates", label: t("effects.templates") },
+            { value: "yours", label: t("properties.animation.favorites"), count: favorites.length },
+            { value: "captions", label: t("sidebar.tabs.captions") },
+          ]}
+        />
       </div>
 
       {/* ── Effects search bar (only shown on effects tab) ── */}

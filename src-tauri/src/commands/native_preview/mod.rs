@@ -1536,8 +1536,27 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                 Ok(Some(shared)) => {
                     let dec_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
                     max_dec_us = max_dec_us.max(dec_us);
-                    let stream_color = guard.metadata().color;
-                    let color = merge_color_metadata(frame_color, &stream_color);
+                    let stream_metadata = guard.metadata();
+                    let color = merge_color_metadata(frame_color, &stream_metadata.color);
+                    let stream_key = if layer.layer_id.is_empty() {
+                        "layer-0"
+                    } else {
+                        layer.layer_id.as_str()
+                    };
+                    crate::engine::ENGINE_TELEMETRY.record_stream_telemetry(
+                        stream_key,
+                        stream_metadata.codec_name.clone(),
+                        stream_metadata.codec_profile.clone(),
+                        stream_metadata.pixel_format.clone(),
+                        stream_metadata.color.range.clone(),
+                        None,
+                    );
+                    crate::engine::ENGINE_TELEMETRY.record_stream_adapter_facts(
+                        stream_key,
+                        stream_metadata.default_device_retry,
+                        stream_metadata.decode_adapter_vendor_id,
+                        stream_metadata.decode_adapter_device_id,
+                    );
                     frames.push((shared, width, height, color));
                 }
                 _ => {
@@ -2822,6 +2841,16 @@ async fn decode_native_video_layers(
             source.color.range.clone(),
             None,
         );
+        crate::engine::ENGINE_TELEMETRY.record_stream_adapter_facts(
+            if layer.layer_id.is_empty() {
+                "layer-0"
+            } else {
+                layer.layer_id.as_str()
+            },
+            source.default_device_retry,
+            source.decode_adapter_vendor_id,
+            source.decode_adapter_device_id,
+        );
         let decoded = actor_frame.into_native_video_frame();
         crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
             if layer.layer_id.is_empty() {
@@ -2932,6 +2961,16 @@ async fn decode_native_video_layers(
                     source.pixel_format,
                     source.color.range,
                     None,
+                );
+                crate::engine::ENGINE_TELEMETRY.record_stream_adapter_facts(
+                    if layer_id.is_empty() {
+                        format!("layer-{unique_idx}")
+                    } else {
+                        layer_id.clone()
+                    },
+                    source.default_device_retry,
+                    source.decode_adapter_vendor_id,
+                    source.decode_adapter_device_id,
                 );
                 let decoded = actor_frame.into_native_video_frame();
                 crate::engine::ENGINE_TELEMETRY.record_stream_decode_decision(
@@ -4738,18 +4777,32 @@ pub(crate) async fn present_native_frame_internal(
                                         log::warn!(
                                             "[NativePreviewSession] render_nv12_from_imported_texture failed: {render_error:?}"
                                         );
-                                        match render_error {
+                                        let latch_reason = match render_error {
                                             crate::wgpu_compositor::PreviewRenderError::UnsupportedFeature(_) => {
                                                 session.mark_dxgi_disabled(crate::wgpu_compositor::DisableReason::UnsupportedFeature);
+                                                crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::UnsupportedFeature
                                             }
                                             crate::wgpu_compositor::PreviewRenderError::DimensionMismatch { .. } => {
                                                 session.mark_dxgi_failed(crate::wgpu_compositor::DxgiFailureReason::DimensionMismatch);
+                                                crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::DimensionMismatch
                                             }
                                             _ => {
                                                 session.mark_dxgi_failed(crate::wgpu_compositor::DxgiFailureReason::ImportFailed);
+                                                crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::ImportFailed
                                             }
-                                        }
-                                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
+                                        };
+                                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
+                                            latch_reason,
+                                            crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
+                                                codec: None,
+                                                bit_depth: None,
+                                                source_width: Some(*width),
+                                                source_height: Some(*height),
+                                                hw_device_type: Some("d3d11va".to_string()),
+                                                latched_at_ms: crate::native_core::performance::now_ms(),
+                                                latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(latch_reason),
+                                            },
+                                        );
                                     }
                                 }
                             }
@@ -4758,7 +4811,19 @@ pub(crate) async fn present_native_frame_internal(
                                     "[NativePreviewSession] import_into_wgpu failed: {reason:?}"
                                 );
                                 session.mark_dxgi_failed(reason);
-                                crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
+                                let latch_reason = crate::wgpu_compositor::adapter_selector::latch_reason_for_dxgi_failure(reason);
+                                crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
+                                    latch_reason,
+                                    crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
+                                        codec: None,
+                                        bit_depth: None,
+                                        source_width: Some(*width),
+                                        source_height: Some(*height),
+                                        hw_device_type: Some("d3d11va".to_string()),
+                                        latched_at_ms: crate::native_core::performance::now_ms(),
+                                        latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(latch_reason),
+                                    },
+                                );
                             }
                         }
                     }
@@ -4772,6 +4837,8 @@ pub(crate) async fn present_native_frame_internal(
                 }
                 None => match planes.cpu_planes() {
                     Some((y_plane, uv_plane)) => {
+                        #[cfg(target_os = "windows")]
+                        crate::wgpu_compositor::dxgi_counters::DXGI_COUNTERS.record_cpu_fallback();
                         frame_transfer_paths.push(FrameTransferPath::CpuNv12);
                         let (tex_w, tex_h);
                         if *source_rotation != 0 {
@@ -4796,7 +4863,19 @@ pub(crate) async fn present_native_frame_internal(
                         }
                     }
                     None => {
-                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled();
+                        let latch_reason = crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::NoCpuPlanes;
+                        crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
+                            latch_reason,
+                            crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
+                                codec: None,
+                                bit_depth: None,
+                                source_width: Some(*width),
+                                source_height: Some(*height),
+                                hw_device_type: Some(planes.transfer_path().as_str().to_string()),
+                                latched_at_ms: crate::native_core::performance::now_ms(),
+                                latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(latch_reason),
+                            },
+                        );
                         return Err(NativePresentationError::Pipeline(format!(
                             "DXGI zero-copy texture import failed and no CPU planes cached (decoded path: {})",
                             planes.transfer_path().as_str()
@@ -5804,6 +5883,76 @@ pub async fn reset_native_preview_runtime(app: tauri::AppHandle) -> Result<(), S
 /// const stats = await invoke<SessionSnapshot>('get_session_telemetry');
 /// console.log(`${stats.frames_produced} frames, miss rate ${stats.miss_rate_pct?.toFixed(2)}%`);
 /// ```
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowsVideoAdapterFacts {
+    stream_key: String,
+    default_device_retry: bool,
+    decode_adapter_vendor_id: Option<u32>,
+    decode_adapter_device_id: Option<u32>,
+    luids_equal: Option<bool>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct WindowsVideoPathTelemetry {
+    platform: &'static str,
+    synthetic: bool,
+    dxgi_counters: crate::wgpu_compositor::DxgiCountersSnapshot,
+    hazard_counters: crate::wgpu_compositor::DxgiHazardSnapshot,
+    adapter_facts: Vec<WindowsVideoAdapterFacts>,
+    latch_events: Vec<crate::wgpu_compositor::adapter_selector::DxgiLatchEvent>,
+    frames_by_source: crate::wgpu_compositor::FramesBySource,
+}
+
+/// Return the bounded Windows video-path instrumentation snapshot.
+///
+/// Release builds emit this only on Windows. Debug builds also expose the
+/// same payload after `force_dxgi_latch`, allowing macOS to validate the
+/// Rust → IPC → NDJSON → linter contract without claiming Windows hardware
+/// behavior was exercised.
+#[tauri::command]
+pub async fn get_windows_video_path_telemetry(
+    app: tauri::AppHandle,
+) -> Result<Option<serde_json::Value>, String> {
+    let (latched, _, _) = crate::wgpu_compositor::adapter_selector::get_dxgi_latch_state();
+    let is_windows = cfg!(target_os = "windows");
+    let synthetic = !is_windows;
+    if !is_windows && !(cfg!(debug_assertions) && latched == Some(true)) {
+        return Ok(None);
+    }
+
+    let session_snapshot = app
+        .try_state::<std::sync::Arc<crate::wgpu_compositor::SessionTelemetryCollector>>()
+        .map(|state| state.snapshot())
+        .unwrap_or_else(|| crate::wgpu_compositor::SessionTelemetryCollector::new().snapshot());
+    let engine_snapshot = crate::engine::ENGINE_TELEMETRY.snapshot();
+    let adapter_facts = engine_snapshot
+        .streams
+        .into_iter()
+        .map(|stream| WindowsVideoAdapterFacts {
+            stream_key: stream.stream_key,
+            default_device_retry: stream.default_device_retry,
+            decode_adapter_vendor_id: stream.decode_adapter_vendor_id,
+            decode_adapter_device_id: stream.decode_adapter_device_id,
+            luids_equal: stream.luids_equal,
+        })
+        .collect();
+
+    let payload = WindowsVideoPathTelemetry {
+        platform: if is_windows { "windows" } else { "synthetic" },
+        synthetic,
+        dxgi_counters: crate::wgpu_compositor::DXGI_COUNTERS.snapshot(),
+        hazard_counters: crate::wgpu_compositor::dxgi_hazards::snapshot(),
+        adapter_facts,
+        latch_events: crate::wgpu_compositor::adapter_selector::get_dxgi_latch_events(),
+        frames_by_source: session_snapshot.frames_by_source,
+    };
+    serde_json::to_value(payload)
+        .map(Some)
+        .map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub async fn get_session_telemetry(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
     use crate::wgpu_compositor::SessionTelemetryCollector;
@@ -5830,6 +5979,8 @@ pub async fn reset_session_telemetry(app: tauri::AppHandle) -> Result<(), String
     use crate::wgpu_compositor::SessionTelemetryCollector;
 
     crate::engine::ENGINE_TELEMETRY.begin_session();
+    crate::wgpu_compositor::DXGI_COUNTERS.reset();
+    crate::wgpu_compositor::dxgi_hazards::reset();
     if let Some(state) = app.try_state::<std::sync::Arc<SessionTelemetryCollector>>() {
         state.reset_session();
     }

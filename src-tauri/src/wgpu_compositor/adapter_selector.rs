@@ -143,16 +143,67 @@ pub struct DxgiLatchContext {
     pub latch_kind: String,
 }
 
+/// One bounded, aggregated latch observation for the Windows video-path record.
+/// The frame index remains optional until all latch call sites have a stable
+/// presentation index; emitting null is preferable to inferring one.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DxgiLatchEvent {
+    pub reason_code: String,
+    pub context: Option<DxgiLatchContext>,
+    pub first_frame_index: Option<u64>,
+    pub count: u64,
+}
+
 static DXGI_LATCH_CONTEXT: std::sync::OnceLock<std::sync::Mutex<Option<DxgiLatchContext>>> =
+    std::sync::OnceLock::new();
+
+const MAX_DXGI_LATCH_EVENTS: usize = 32;
+static DXGI_LATCH_EVENTS: std::sync::OnceLock<std::sync::Mutex<Vec<DxgiLatchEvent>>> =
     std::sync::OnceLock::new();
 
 fn latch_context_lock() -> &'static std::sync::Mutex<Option<DxgiLatchContext>> {
     DXGI_LATCH_CONTEXT.get_or_init(|| std::sync::Mutex::new(None))
 }
 
+fn latch_events_lock() -> &'static std::sync::Mutex<Vec<DxgiLatchEvent>> {
+    DXGI_LATCH_EVENTS.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+fn record_dxgi_latch_event(reason: DxgiLatchReasonCode, context: Option<&DxgiLatchContext>) {
+    let reason_code = reason.to_string();
+    let first_frame_index = None;
+    if let Ok(mut events) = latch_events_lock().lock() {
+        if let Some(existing) = events.iter_mut().find(|event| {
+            event.reason_code == reason_code && event.context.as_ref().map(|value| value.hw_device_type.as_deref())
+                == context.map(|value| value.hw_device_type.as_deref())
+        }) {
+            existing.count = existing.count.saturating_add(1);
+            return;
+        }
+        if events.len() >= MAX_DXGI_LATCH_EVENTS {
+            return;
+        }
+        events.push(DxgiLatchEvent {
+            reason_code,
+            context: context.cloned(),
+            first_frame_index,
+            count: 1,
+        });
+    }
+}
+
+pub fn get_dxgi_latch_events() -> Vec<DxgiLatchEvent> {
+    latch_events_lock()
+        .lock()
+        .map(|events| events.clone())
+        .unwrap_or_default()
+}
+
 pub fn mark_dxgi_runtime_disabled_with_reason(reason: DxgiLatchReasonCode) {
     DXGI_RUNTIME_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
     DXGI_LATCH_REASON.store(reason_to_u8(reason), std::sync::atomic::Ordering::Relaxed);
+    record_dxgi_latch_event(reason, None);
 }
 
 /// "policy" for intentional disables; "failure" for unexpected decode errors.
@@ -165,6 +216,30 @@ pub fn latch_kind_for(reason: DxgiLatchReasonCode) -> String {
     }
 }
 
+/// Pure mapping from a per-attempt [`DxgiFailureReason`] to the telemetry
+/// [`DxgiLatchReasonCode`] recorded when the runtime latch trips.
+pub const fn latch_reason_for_dxgi_failure(
+    reason: super::render_path::DxgiFailureReason,
+) -> DxgiLatchReasonCode {
+    use super::render_path::DxgiFailureReason;
+    match reason {
+        DxgiFailureReason::ImportFailed => DxgiLatchReasonCode::ImportFailed,
+        DxgiFailureReason::InvalidTexture => DxgiLatchReasonCode::InvalidTexture,
+        DxgiFailureReason::UnsupportedFormat => DxgiLatchReasonCode::FormatUnsupportedP010,
+        DxgiFailureReason::WrongArraySlice => DxgiLatchReasonCode::WrongArraySlice,
+        DxgiFailureReason::DeviceLost => DxgiLatchReasonCode::DeviceLost,
+        DxgiFailureReason::SurfaceCreationFailed => DxgiLatchReasonCode::SurfaceCreationFailed,
+        DxgiFailureReason::DimensionMismatch => DxgiLatchReasonCode::DimensionMismatch,
+        DxgiFailureReason::AdapterMismatchForCurrentImportPath => {
+            DxgiLatchReasonCode::CapabilityUnavailable
+        }
+        DxgiFailureReason::UnsupportedResourceConfiguration => {
+            DxgiLatchReasonCode::UnsupportedFeature
+        }
+        DxgiFailureReason::SynchronizationFailure => DxgiLatchReasonCode::ImportFailed,
+    }
+}
+
 /// Extended variant: also stores per-frame context at the latch site.
 /// Call this from decode paths that have codec/format/resolution available.
 pub fn mark_dxgi_runtime_disabled_with_context(
@@ -173,6 +248,7 @@ pub fn mark_dxgi_runtime_disabled_with_context(
 ) {
     DXGI_RUNTIME_DISABLED.store(true, std::sync::atomic::Ordering::Relaxed);
     DXGI_LATCH_REASON.store(reason_to_u8(reason), std::sync::atomic::Ordering::Relaxed);
+    record_dxgi_latch_event(reason, Some(&context));
     if let Ok(mut guard) = latch_context_lock().lock() {
         // First-write-wins: preserve the context from the triggering failure.
         if guard.is_none() {
@@ -246,6 +322,9 @@ pub fn reset_dxgi_latch_state_for_tests() {
     DXGI_LATCH_REASON.store(0, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut guard) = latch_context_lock().lock() {
         *guard = None;
+    }
+    if let Ok(mut events) = latch_events_lock().lock() {
+        events.clear();
     }
 }
 
@@ -618,6 +697,77 @@ mod tests {
                 "Variant #{i}: Rust Display '{display}' != JSON '{json_code}'"
             );
         }
+    }
+
+    #[test]
+    fn dxgi_failure_reasons_map_to_specific_latch_reasons() {
+        use super::super::render_path::DxgiFailureReason;
+
+        let expected = [
+            (DxgiFailureReason::ImportFailed, DxgiLatchReasonCode::ImportFailed),
+            (DxgiFailureReason::InvalidTexture, DxgiLatchReasonCode::InvalidTexture),
+            (
+                DxgiFailureReason::UnsupportedFormat,
+                DxgiLatchReasonCode::FormatUnsupportedP010,
+            ),
+            (
+                DxgiFailureReason::WrongArraySlice,
+                DxgiLatchReasonCode::WrongArraySlice,
+            ),
+            (DxgiFailureReason::DeviceLost, DxgiLatchReasonCode::DeviceLost),
+            (
+                DxgiFailureReason::SurfaceCreationFailed,
+                DxgiLatchReasonCode::SurfaceCreationFailed,
+            ),
+            (
+                DxgiFailureReason::DimensionMismatch,
+                DxgiLatchReasonCode::DimensionMismatch,
+            ),
+            (
+                DxgiFailureReason::AdapterMismatchForCurrentImportPath,
+                DxgiLatchReasonCode::CapabilityUnavailable,
+            ),
+            (
+                DxgiFailureReason::UnsupportedResourceConfiguration,
+                DxgiLatchReasonCode::UnsupportedFeature,
+            ),
+            (
+                DxgiFailureReason::SynchronizationFailure,
+                DxgiLatchReasonCode::ImportFailed,
+            ),
+        ];
+
+        for (failure, latch) in expected {
+            assert_eq!(latch_reason_for_dxgi_failure(failure), latch);
+        }
+    }
+
+    #[test]
+    fn latch_events_are_bounded_and_aggregate_repeated_reason_contexts() {
+        let _guard = latch_lock();
+        reset_dxgi_latch_state_for_tests();
+        let context = DxgiLatchContext {
+            codec: Some("h264".to_string()),
+            bit_depth: Some(8),
+            source_width: Some(1920),
+            source_height: Some(1080),
+            hw_device_type: Some("d3d11va".to_string()),
+            latched_at_ms: 1,
+            latch_kind: "failure".to_string(),
+        };
+
+        mark_dxgi_runtime_disabled_with_context(
+            DxgiLatchReasonCode::DxgiDecodeFailed,
+            context.clone(),
+        );
+        mark_dxgi_runtime_disabled_with_context(DxgiLatchReasonCode::DxgiDecodeFailed, context);
+
+        let events = get_dxgi_latch_events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].reason_code, "dxgi-decode-failed");
+        assert_eq!(events[0].count, 2);
+        assert!(events[0].first_frame_index.is_none());
+        reset_dxgi_latch_state_for_tests();
     }
 
     /// In debug builds the latch state is visible on all platforms so the

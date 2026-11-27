@@ -108,6 +108,7 @@ export type PerfLogKind =
   | "project-session-load"
   | "project-session-close"
   | "engine-telemetry"
+  | "windows-video-path"
   | "engine-frame-telemetry"
   | "engine-qos-decision"
   | "engine-seek-telemetry"
@@ -974,6 +975,7 @@ export class PerfLogService {
       void this.pollNativeSessionTelemetry();
       void this.pollProcessMemory();
       void this.pollEngineTelemetry();
+      void this.pollWindowsVideoPathTelemetry();
       void this.flushFilmstripSummary();
       this.flushFrontendSyncMetrics();
       this.flushWorkerSummary();
@@ -1424,6 +1426,27 @@ export class PerfLogService {
       });
     } catch {
       // Ignored if engine telemetry is unavailable
+    }
+  }
+
+  /** Captures the Windows DXGI path, or the debug-only synthetic equivalent. */
+  private async pollWindowsVideoPathTelemetry(
+    sessionId = this.sessionId,
+  ): Promise<void> {
+    if (!sessionId) return;
+    try {
+      const snapshot = await tauriInvoke<unknown>(
+        "get_windows_video_path_telemetry",
+      );
+      if (!snapshot) return;
+      this.enqueue({
+        kind: "windows-video-path",
+        sessionId,
+        timestampEpochMs: Date.now(),
+        payload: snapshot,
+      });
+    } catch {
+      // The record is unavailable on non-Windows release builds.
     }
   }
 

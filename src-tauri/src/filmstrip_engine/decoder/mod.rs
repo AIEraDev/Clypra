@@ -32,6 +32,13 @@ pub use crate::filmstrip_engine::decoder::pixel_ops::*;
 pub use crate::filmstrip_engine::decoder::pool::*;
 pub use crate::filmstrip_engine::decoder::seek_planner::*;
 
+#[derive(Debug, Clone, Copy, Default)]
+struct HardwareDecodeFacts {
+    default_device_retry: bool,
+    decode_adapter_vendor_id: Option<u32>,
+    decode_adapter_device_id: Option<u32>,
+}
+
 #[derive(Clone)]
 struct FfmpegLogContext {
     stream_key: Option<String>,
@@ -871,7 +878,13 @@ impl VideoDecoder {
         if let Some(p) = purpose {
             codec_guard.set_purpose(p);
         }
-        let (decoder, width, height, is_hardware_accelerated) = if prefer_hardware {
+        let (
+            decoder,
+            width,
+            height,
+            is_hardware_accelerated,
+            hardware_facts,
+        ) = if prefer_hardware {
             match Self::open_with_hw(codec_ctx, purpose) {
                 Ok(res) => res,
                 Err(e) => {
@@ -881,7 +894,7 @@ impl VideoDecoder {
             }
         } else {
             match Self::open_software_codec(codec_ctx) {
-                Ok((dec, w, h)) => (dec, w, h, false),
+                Ok((dec, w, h)) => (dec, w, h, false, HardwareDecodeFacts::default()),
                 Err(e) => {
                     codec_guard.set_ok(false);
                     return Err(e);
@@ -911,6 +924,9 @@ impl VideoDecoder {
             codec_profile,
             pixel_format,
             is_hardware_accelerated,
+            default_device_retry: hardware_facts.default_device_retry,
+            decode_adapter_vendor_id: hardware_facts.decode_adapter_vendor_id,
+            decode_adapter_device_id: hardware_facts.decode_adapter_device_id,
         };
 
         Ok(Self {
@@ -1148,6 +1164,50 @@ impl VideoDecoder {
     }
 
     #[cfg(target_os = "windows")]
+    unsafe fn d3d11va_adapter_ids(
+        device_ref: *mut ffmpeg::ffi::AVBufferRef,
+    ) -> (Option<u32>, Option<u32>) {
+        use windows::Win32::Graphics::Direct3D11::ID3D11Device;
+        use windows::Win32::Graphics::Dxgi::IDXGIDevice;
+        use windows::core::Interface;
+
+        #[repr(C)]
+        struct AVD3D11VADeviceContext {
+            device: *mut std::ffi::c_void,
+            _device_context: *mut std::ffi::c_void,
+            _video_device: *mut std::ffi::c_void,
+            _video_context: *mut std::ffi::c_void,
+            _lock: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
+            _unlock: Option<unsafe extern "C" fn(*mut std::ffi::c_void)>,
+            _lock_ctx: *mut std::ffi::c_void,
+        }
+
+        if device_ref.is_null() || (*device_ref).data.is_null() {
+            return (None, None);
+        }
+        let device_context = (*((*device_ref).data as *mut ffmpeg::ffi::AVHWDeviceContext)).hwctx
+            as *mut AVD3D11VADeviceContext;
+        if device_context.is_null() || (*device_context).device.is_null() {
+            return (None, None);
+        }
+
+        let raw_device = (*device_context).device;
+        let Some(device) = <ID3D11Device as Interface>::from_raw_borrowed(&raw_device) else {
+            return (None, None);
+        };
+        let Ok(dxgi_device) = device.cast::<IDXGIDevice>() else {
+            return (None, None);
+        };
+        let Ok(adapter) = dxgi_device.GetAdapter() else {
+            return (None, None);
+        };
+        let Ok(desc) = adapter.GetDesc() else {
+            return (None, None);
+        };
+        (Some(desc.VendorId), Some(desc.DeviceId))
+    }
+
+    #[cfg(target_os = "windows")]
     unsafe fn configure_d3d11va_shared_frames(
         ctx: *mut ffmpeg::ffi::AVCodecContext,
         chosen: ffmpeg::ffi::AVPixelFormat,
@@ -1367,7 +1427,16 @@ impl VideoDecoder {
     fn open_with_hw(
         mut ctx: ffmpeg::codec::context::Context,
         purpose: Option<&'static str>,
-    ) -> Result<(ffmpeg::codec::decoder::Video, u32, u32, bool), String> {
+    ) -> Result<
+        (
+            ffmpeg::codec::decoder::Video,
+            u32,
+            u32,
+            bool,
+            HardwareDecodeFacts,
+        ),
+        String,
+    > {
         #[cfg(target_os = "macos")]
         let hw_types: &[ffmpeg::ffi::AVHWDeviceType] =
             &[ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_VIDEOTOOLBOX];
@@ -1380,6 +1449,7 @@ impl VideoDecoder {
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
         let hw_types: &[ffmpeg::ffi::AVHWDeviceType] = &[];
 
+        let mut hardware_facts = HardwareDecodeFacts::default();
         for &hw_type in hw_types {
             if !Self::codec_supports_hw_device(&ctx, hw_type) {
                 log::debug!(
@@ -1429,6 +1499,7 @@ impl VideoDecoder {
                         std::ptr::null_mut(),
                         0,
                     );
+                    hardware_facts.default_device_retry = true;
                 }
 
                 if ret >= 0 && !hw_ctx.is_null() {
@@ -1443,10 +1514,18 @@ impl VideoDecoder {
                     (*ctx.as_mut_ptr()).thread_count = thread_count;
                     (*ctx.as_mut_ptr()).thread_type =
                         ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE;
+                    #[cfg(target_os = "windows")]
+                    let hw_device_ctx = (*ctx.as_mut_ptr()).hw_device_ctx;
                     let decoder = ctx.decoder().video().map_err(|e| e.to_string())?;
                     let w = decoder.width();
                     let h = decoder.height();
-                    return Ok((decoder, w, h, true));
+                    #[cfg(target_os = "windows")]
+                    if hw_type == ffmpeg::ffi::AVHWDeviceType::AV_HWDEVICE_TYPE_D3D11VA {
+                        let (vendor_id, device_id) = Self::d3d11va_adapter_ids(hw_device_ctx);
+                        hardware_facts.decode_adapter_vendor_id = vendor_id;
+                        hardware_facts.decode_adapter_device_id = device_id;
+                    }
+                    return Ok((decoder, w, h, true, hardware_facts));
                 } else {
                     hw_guard.set_ok(false);
                 }
@@ -1456,7 +1535,8 @@ impl VideoDecoder {
         // No compatible device is an expected capability outcome, not a
         // partially initialized decoder. Re-open using the normal software
         // format negotiation path.
-        Self::open_software_codec(ctx).map(|(d, w, h)| (d, w, h, false))
+        Self::open_software_codec(ctx)
+            .map(|(d, w, h)| (d, w, h, false, hardware_facts))
     }
 
     /// Decode a single frame at full display resolution (no thumbnail scaling).

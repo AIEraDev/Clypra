@@ -693,5 +693,17 @@
   "aiPlan.op.trim": "裁剪片段",
   "aiPlan.op.addText": "添加文本",
   "aiPlan.toggleOp": "切换编辑 {{index}}",
-  "aiPlan.markersCount": "{{count}} 个时间线标记"
+  "aiPlan.markersCount": "{{count}} 个时间线标记",
+  "stickers.import": "导入",
+  "stickers.tab.stickers": "贴纸",
+  "stickers.tab.shapes": "形状",
+  "stickers.tab.yours": "我的 ({{count}})",
+  "stickers.tab.giphy": "GIPHY",
+  "stickers.search": "搜索贴纸和表情…",
+  "stickers.category.all": "全部",
+  "stickers.category.trending": "热门",
+  "stickers.offline": "离线模式：入门贴纸已准备就绪。",
+  "stickers.loading": "正在加载贴纸目录…",
+  "stickers.empty.title": "未找到贴纸",
+  "stickers.empty.description": "请尝试其他搜索词或类别。"
 }

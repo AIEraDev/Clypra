@@ -33,6 +33,10 @@ import type {
 } from "./index";
 import type { Gap } from "./gap";
 import { isValidFrameRate } from "@/store/settingsTypes";
+import {
+  migrateLegacyStickerRef,
+  type StickerRef,
+} from "@/features/stickers/types";
 
 // ============================================================================
 // RUST TYPES (snake_case)
@@ -92,6 +96,7 @@ export interface RustMediaAsset {
   stickerFormat?: "static" | "gif" | "lottie";
   stickerAnimationPath?: string;
   stickerSourceId?: string;
+  stickerRef?: StickerRef;
   contentBounds?: {
     x: number;
     y: number;
@@ -144,6 +149,10 @@ export interface RustClip {
   kind?: string;
   audioPath?: string;
   detachedFromClipId?: string;
+  stickerFormat?: "static" | "gif" | "lottie";
+  stickerAnimationPath?: string;
+  stickerSourceId?: string;
+  stickerRef?: StickerRef;
   compoundChildren?: RustClip[];
   compoundPreview?: string;
 }
@@ -427,6 +436,9 @@ export function fromRustMediaAsset(rust: RustMediaAsset): MediaAsset {
     stickerFormat: rust.stickerFormat,
     stickerAnimationPath: rust.stickerAnimationPath,
     stickerSourceId: rust.stickerSourceId,
+    stickerRef:
+      rust.stickerRef ??
+      migrateLegacyStickerRef(rust.stickerSourceId, rust.stickerFormat),
     streams: rust.streams,
     derivedFrom: rust.derived_from,
   };
@@ -527,6 +539,12 @@ export function fromRustClip(rust: RustClip): Clip {
     fitMode: rust.fitMode,
     conform,
     volume: rust.volume,
+    stickerRef:
+      rust.stickerRef ??
+      migrateLegacyStickerRef(
+        rust.stickerSourceId,
+        rust.stickerFormat,
+      ),
   };
 
   // Preserve all additional properties (e.g., TextClip properties)
@@ -676,6 +694,7 @@ export function toRustMediaAsset(frontend: MediaAsset): RustMediaAsset {
     stickerFormat: frontend.stickerFormat,
     stickerAnimationPath: frontend.stickerAnimationPath,
     stickerSourceId: frontend.stickerSourceId,
+    stickerRef: frontend.stickerRef,
     streams: frontend.streams,
     derived_from: frontend.derivedFrom,
   };
@@ -739,6 +758,7 @@ export function toRustClip(frontend: Clip): RustClip {
     sourceAspectRatio: frontend.sourceAspectRatio,
     fitMode: frontend.fitMode,
     volume: frontend.volume,
+    stickerRef: frontend.stickerRef,
   };
 
   // Preserve all additional properties (e.g., TextClip properties)

@@ -199,6 +199,13 @@ describe("TimelinePlacementEngine", () => {
     expect(mediaAsset!.path.includes("/Caches/data:")).toBe(false);
     expect(mediaAsset!.stickerAnimationPath).toBe("bundled://starter-golden-star.json");
     expect(mediaAsset!.stickerFormat).toBe("lottie");
+    expect(stickerClip!.stickerRef).toEqual({
+      providerId: "bundled",
+      itemId: "starter-golden-star",
+      format: "lottie",
+      shape: undefined,
+      license: undefined,
+    });
   });
 
   it("adds text clip to empty timeline with no tracks", async () => {
