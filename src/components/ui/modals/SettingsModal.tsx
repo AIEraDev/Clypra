@@ -18,6 +18,7 @@ import { KeyboardShortcutsSettings } from "@/components/settings/KeyboardShortcu
 import { WhisperSettings } from "@/components/settings/WhisperSettings";
 import { CacheSettings } from "@/components/settings/CacheSettings";
 import { AboutTab } from "@/components/settings/AboutTab";
+import { DiagnosticsTab } from "@/components/settings/DiagnosticsTab";
 
 // Re-export shared primitives for backward compatibility
 export { SettingRow } from "@/components/settings/SettingRow";
@@ -34,6 +35,7 @@ export type SettingsTabId =
   | "shortcuts"
   | "captions"
   | "cache"
+  | "diagnostics"
   | "about";
 
 interface TabDefinition {
@@ -73,6 +75,12 @@ const TABS: TabDefinition[] = [
     labelKey: "settings.tabs.storage",
     defaultLabel: "Storage & Cache",
     icon: HardDrive,
+  },
+  {
+    id: "diagnostics",
+    labelKey: "settings.tabs.diagnostics",
+    defaultLabel: "Preview Diagnostics",
+    icon: SlidersHorizontal,
   },
   {
     id: "about",
@@ -166,6 +174,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <WhisperSettings />
             ))}
           {activeTab === "cache" && <CacheSettings />}
+          {activeTab === "diagnostics" && <DiagnosticsTab />}
           {activeTab === "about" && <AboutTab />}
         </main>
       </div>

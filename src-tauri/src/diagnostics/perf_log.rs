@@ -163,6 +163,10 @@ pub struct PerfSessionHeader {
     pub experiment_arm: Option<String>,
     /// Human-readable meaning derived from resolved flags, not the arm letter.
     pub experiment_arm_meaning: Option<String>,
+    /// Upload consent for sessions eligible to leave the device. Explicit
+    /// opt-outs are omitted because those sessions do not upload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub consent_state: Option<String>,
     pub validation_mode: bool,
 }
 
@@ -192,6 +196,7 @@ struct PerfLogSession {
     file_path: PathBuf,
     file: Arc<AsyncMutex<File>>,
     opened_at_epoch_ms: u64,
+    consent_state: Option<String>,
 }
 
 // ── Global session registry ────────────────────────────────────────────────
@@ -225,7 +230,11 @@ fn resolved_flag(name: &str) -> bool {
     )
 }
 
-fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSessionHeader {
+fn make_session_header(
+    session_id: &str,
+    opened_at_epoch_ms: u64,
+    consent_state: Option<String>,
+) -> PerfSessionHeader {
     let machine = crate::engine::benchmark::runner::probe_machine_identity();
     let decode_resolution = crate::engine::decode_policy::resolve_decode_resolution();
     let runtime_profile = crate::runtime_profile::resolve_runtime_flag_profile();
@@ -417,7 +426,10 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
         unverified_capabilities_verified: false,
         ffmpeg_callback_verified: crate::filmstrip_engine::decoder::ffmpeg_callback_verified(),
         media_hash: std::env::var("CLYPRA_MEDIA_HASH").ok(),
-        project_hash: std::env::var("CLYPRA_PROJECT_HASH").ok(),
+        // Project hashes can fingerprint a user's project. They are not part
+        // of the production upload contract; media_hash is retained only for
+        // the explicitly supplied, public W1-A fixture-pack identifier.
+        project_hash: None,
         project_computed_duration: env_f64("CLYPRA_PROJECT_COMPUTED_DURATION"),
         project_frame_rate: env_f64("CLYPRA_PROJECT_FRAME_RATE"),
         media_frame_rate: env_f64("CLYPRA_MEDIA_FRAME_RATE"),
@@ -425,6 +437,7 @@ fn make_session_header(session_id: &str, opened_at_epoch_ms: u64) -> PerfSession
         scenario_hash: std::env::var("CLYPRA_SCENARIO_HASH").ok(),
         experiment_arm,
         experiment_arm_meaning,
+        consent_state,
         validation_mode: runtime_profile.validate_stages.enabled,
     }
 }
@@ -512,10 +525,15 @@ pub fn get_perf_log_dir(app_data_dir: &Path) -> PathBuf {
 pub async fn open_perf_log_session(
     app: tauri::AppHandle,
     session_id: String,
+    consent_state: Option<String>,
 ) -> Result<PerfLogSessionInfo, String> {
     // Re-use existing session when the frontend hot-reloads.
     if let Some(session) = SESSIONS.get(&session_id) {
-        let header = make_session_header(&session_id, session.opened_at_epoch_ms);
+        let header = make_session_header(
+            &session_id,
+            session.opened_at_epoch_ms,
+            session.consent_state.clone(),
+        );
         return Ok(PerfLogSessionInfo {
             session_id: session_id.clone(),
             file_path: session.file_path.to_string_lossy().to_string(),
@@ -552,7 +570,8 @@ pub async fn open_perf_log_session(
         .open(&file_path)
         .map_err(|e| format!("Failed to open perf log file '{file_name}': {e}"))?;
 
-    let header = make_session_header(&session_id, epoch);
+    let consent_state = consent_state.filter(|value| value == "default" || value == "explicit-on");
+    let header = make_session_header(&session_id, epoch, consent_state.clone());
     let header_entry = PerfLogEntry {
         schema_version: PERF_LOG_SCHEMA_VERSION,
         kind: "session-header".to_string(),
@@ -577,6 +596,7 @@ pub async fn open_perf_log_session(
             file_path: file_path.clone(),
             file: Arc::new(AsyncMutex::new(file)),
             opened_at_epoch_ms: epoch,
+            consent_state,
         },
     );
 
@@ -1009,6 +1029,37 @@ pub fn purge_perf_logs(app: tauri::AppHandle, max_age_days: Option<u32>) -> Resu
         }
     }
 
+    Ok(deleted)
+}
+
+/// Deletes completed perf-log files that have not been uploaded. Open sessions
+/// are skipped because their writers are still active.
+#[tauri::command]
+pub fn delete_pending_perf_logs(app: tauri::AppHandle) -> Result<usize, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve perf-log directory: {e}"))?;
+    let log_dir = get_perf_log_dir(&app_data_dir);
+    if !log_dir.exists() {
+        return Ok(0);
+    }
+
+    let open_paths: std::collections::HashSet<PathBuf> = SESSIONS
+        .iter()
+        .map(|session| session.value().file_path.clone())
+        .collect();
+    let mut deleted = 0usize;
+    for entry in fs::read_dir(&log_dir).map_err(|e| format!("Failed to read perf_logs dir: {e}"))? {
+        let path = entry.map_err(|e| format!("Directory entry error: {e}"))?.path();
+        let ext = path.extension().and_then(|value| value.to_str());
+        if !matches!(ext, Some("ndjson") | Some("uploaded")) || open_paths.contains(&path) {
+            continue;
+        }
+        if fs::remove_file(path).is_ok() {
+            deleted += 1;
+        }
+    }
     Ok(deleted)
 }
 

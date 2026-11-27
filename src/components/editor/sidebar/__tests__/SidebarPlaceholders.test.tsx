@@ -24,6 +24,10 @@ vi.mock("../tabs/SmartOverlaysTab", () => ({
   SmartOverlaysTab: () => <div data-testid="real-smart-overlays-tab">Real Smart Overlays Tab</div>,
 }));
 
+vi.mock("@/features/clips/components/ClipsTab", () => ({
+  ClipsTab: () => <div data-testid="real-clips-tab">Real Clips Tab</div>,
+}));
+
 describe("Sidebar FeaturePlaceholders Integration", () => {
   it("renders real MediaTab when initial tab is media", () => {
     render(<Sidebar initialTab="media" />);
@@ -98,5 +102,20 @@ describe("Sidebar FeaturePlaceholders Integration", () => {
     const textTabButton = screen.getByRole("button", { name: /text/i });
     fireEvent.click(textTabButton);
     expect(screen.getByTestId("real-text-tab")).toBeDefined();
+
+    // Clips is gated behind VITE_CLYPRA_CLIPS_TAB_ENABLED=1 by default
+    expect(screen.queryByRole("button", { name: /clips/i })).toBeNull();
+  });
+
+  it("renders Clips tab when VITE_CLYPRA_CLIPS_TAB_ENABLED=1", () => {
+    vi.stubEnv("VITE_CLYPRA_CLIPS_TAB_ENABLED", "1");
+    try {
+      render(<Sidebar initialTab="media" />);
+      const clipsTabButton = screen.getByRole("button", { name: /clips/i });
+      fireEvent.click(clipsTabButton);
+      expect(screen.getByTestId("real-clips-tab")).toBeDefined();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 });

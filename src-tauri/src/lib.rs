@@ -38,9 +38,9 @@ use diagnostics::crash_handler::{
     get_unreported_crashes, mark_crash_reported, purge_crash_reports,
 };
 use diagnostics::{
-    append_perf_log_entries, close_perf_log_session, list_perf_log_files, mark_perf_log_uploaded,
-    open_perf_log_session, purge_perf_logs, read_perf_log_file, upload_pending_perf_logs,
-    upload_perf_log_session,
+    append_perf_log_entries, close_perf_log_session, delete_pending_perf_logs, list_perf_log_files,
+    mark_perf_log_uploaded, open_perf_log_session, purge_perf_logs, read_perf_log_file,
+    upload_pending_perf_logs, upload_perf_log_session,
 };
 use filmstrip_engine::init_filmstrip_engine;
 
@@ -732,6 +732,7 @@ pub fn run() {
             get_windows_video_path_telemetry,
             reset_session_telemetry,
             mark_engine_telemetry_closing,
+            quiesce_engine_telemetry,
             hide_native_surface,
             get_native_surface_status,
             configure_native_playback,
@@ -842,6 +843,7 @@ pub fn run() {
             close_perf_log_session,
             upload_perf_log_session,
             upload_pending_perf_logs,
+            delete_pending_perf_logs,
             list_perf_log_files,
             purge_perf_logs,
             read_perf_log_file,

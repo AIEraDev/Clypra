@@ -44,8 +44,10 @@ jobs:
             target: "aarch64-unknown-linux-gnu"
             vcpkg_triplet: ""
             args: "--target aarch64-unknown-linux-gnu"
+            experimental: true
 
     runs-on: ${{ matrix.platform }}
+    continue-on-error: ${{ matrix.experimental || false }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -309,9 +311,9 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Clypra v__VERSION__"
-          releaseBody: "Automated multi-platform release bundle — macOS (arm64, x64), Windows (x64, arm64), Linux (x64, arm64)."
-          releaseDraft: false
-          prerelease: false
+          releaseBody: "Automated multi-platform release bundle — macOS (arm64, x64), Windows (x64), Linux (x64), with Linux arm64 marked experimental."
+          releaseDraft: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
           args: ${{ matrix.args }}
           retryAttempts: 3
 

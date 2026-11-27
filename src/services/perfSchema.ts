@@ -77,6 +77,7 @@ export interface PerfSessionHeader {
   scenarioHash?: string | null;
   experimentArm?: string | null;
   experimentArmMeaning?: "dirty-recovery-enabled" | "dirty-recovery-disabled" | null;
+  consentState?: "default" | "explicit-on";
   validationMode: boolean;
 }
 

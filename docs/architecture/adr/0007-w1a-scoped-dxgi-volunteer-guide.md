@@ -4,7 +4,11 @@ Status: pre-registered; fixture pack locked before field data
 
 Protocol version: `w1a-volunteer-v1`
 
+Build under test: `Clypra v1.6.9-1` ([Windows prerelease](https://github.com/AIEraDev/Clypra/releases/tag/v1.6.9-1))
+
 Fixture pack: `w1a-volunteer-v1-fixtures.zip`
+
+Fixture release: [w1a-volunteer-v1](https://github.com/AIEraDev/Clypra/releases/tag/w1a-volunteer-v1)
 
 Published archive SHA-256 (verify the downloaded archive itself):
 `9dd56867104fe619fd29b0e952708efe68fe18654f26dcbf1741c0f7efebc7ff`
@@ -27,7 +31,7 @@ The minimum analysis set is:
 - 6 volunteers, each running both arms on the same Windows installation.
 - 3 distinct adapter-and-driver cohorts, with at least 2 volunteers in each
   cohort.
-- A release build containing W1-A and the opt-in telemetry uploader.
+- A release build containing W1-A and the disclosed telemetry uploader.
 
 A cohort is identified by the observed adapter vendor/device facts and driver
 version already present in telemetry. Do not send GPU serial numbers, user
@@ -39,7 +43,9 @@ different cohorts and repeat the comparison on an unchanged driver.
 ## Protocol lock and arm counterbalancing
 
 This exact guide, including the thresholds and sequence, must be committed and
-tagged as `w1a-volunteer-v1` before the first volunteer starts. Do not change
+tagged before the first volunteer starts. The fixture/protocol release remains
+`w1a-volunteer-v1`; the build-specific guide lock is tagged
+`w1a-volunteer-v1-build-1.6.9-1`. Do not change
 the arm order, fixture, thresholds, or exclusion rules after data collection
 begins. A substantive change creates a new protocol version; do not combine its
 results with v1.
@@ -88,6 +94,14 @@ setx CLYPRA_MEDIA_HASH <published-fixture-pack-sha256>
 `setx` affects future processes only. Fully exit Clypra and restart Windows
 (or sign out and back in) before launching from the Start menu. Do not change
 the flag during a session.
+
+## Windows installer trust prompt
+
+The `v1.6.9-1` Windows x64 MSI and NSIS installers are not Authenticode-signed.
+Windows SmartScreen may therefore show an “unknown publisher” or similar
+warning. This is expected for this volunteer prerelease; download the installer
+only from the linked GitHub prerelease and verify the release asset before
+continuing. Do not bypass a warning for a file obtained from another source.
 
 Before sending a result, confirm all of the following in the uploaded session
 header: `resolvedFlags.CLYPRA_DXGI_SCOPED_LATCH`, the expected
@@ -200,20 +214,21 @@ not exist.
 
 ## Consent and withdrawal
 
-Participation is opt-in. Before each run, the volunteer must enable telemetry
-upload in Settings → Diagnostics and agree to this comparison. The upload is
+Participation is voluntary and requires the first-run telemetry disclosure.
+Before each run, the volunteer must leave telemetry enabled in Settings →
+Preview Diagnostics and agree to this comparison. The upload is
 limited to the session header and bounded counters/metadata needed for the
 comparison, including the arm, fixture hash, adapter/driver facts, latch
 events, and video-path counters. It does not upload media, project names, or
 file paths. The volunteer may withdraw from future uploads at any time by
-turning telemetry upload off in Settings → Diagnostics; for the next launch,
+turning telemetry upload off in Settings → Preview Diagnostics; for the next launch,
 `CLYPRA_DISABLE_TELEMETRY_UPLOAD=1` is also an explicit opt-out override.
 Already-uploaded sessions are identified by session ID for the documented
 90-day retention and deletion-request process.
 
 ## What to send back
 
-Use the existing opt-in telemetry path. Send only the two session IDs and this
+Use the existing disclosed telemetry path. Send only the two session IDs and this
 small companion table; do not attach raw local logs or screenshots containing
 paths.
 

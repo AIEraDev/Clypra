@@ -12,6 +12,7 @@ import { MediaTab } from "./tabs/MediaTab";
 import { AudioTab } from "./tabs/AudioTab";
 import { TextTab } from "./tabs/TextTab";
 import { StickersTab } from "./tabs/StickersTab";
+import { ClipsTab } from "@/features/clips/components/ClipsTab";
 import { FiltersTab } from "./tabs/FiltersTab";
 import { TransitionsTab } from "./tabs/TransitionsTab";
 import { CaptionsTab } from "./tabs/CaptionsTab";
@@ -21,32 +22,42 @@ import { EffectsPanel } from "@/features/video-effects/components/EffectsPanel";
 import {
   AssetsTabIcon,
   AudioTabIcon,
+  ClipsTabIcon,
   TextTabIcon,
 } from "@/components/ui/icons";
 import { FeaturePlaceholder } from "@/components/ui/FeaturePlaceholder";
 import { SIDEBAR_PLACEHOLDERS } from "./placeholders";
 import { useI18n } from "@/i18n";
 
-const SIDEBAR_TABS = [
-  { id: "media" as const, icon: AssetsTabIcon, labelKey: "sidebar.tabs.media" },
-  { id: "audio" as const, icon: AudioTabIcon, labelKey: "sidebar.tabs.audio" },
-  { id: "text" as const, icon: TextTabIcon, labelKey: "sidebar.tabs.text" },
-  // Overlays tab hidden for now
-  // { id: "smart-overlays" as const, icon: Sparkles, labelKey: "sidebar.tabs.overlays" },
-  { id: "stickers" as const, icon: Smile, labelKey: "sidebar.tabs.stickers" },
-  { id: "effects" as const, icon: Wand2, labelKey: "sidebar.tabs.effects" },
-  { id: "filters" as const, icon: Filter, labelKey: "sidebar.tabs.filters" },
-  {
-    id: "transitions" as const,
-    icon: Shuffle,
-    labelKey: "sidebar.tabs.transitions",
-  },
-  {
-    id: "captions" as const,
-    icon: MessageSquare,
-    labelKey: "sidebar.tabs.captions",
-  },
-] as const;
+function getSidebarTabs() {
+  return [
+    { id: "media" as const, icon: AssetsTabIcon, labelKey: "sidebar.tabs.media" },
+    { id: "audio" as const, icon: AudioTabIcon, labelKey: "sidebar.tabs.audio" },
+    { id: "text" as const, icon: TextTabIcon, labelKey: "sidebar.tabs.text" },
+    // Overlays tab hidden for now
+    // { id: "smart-overlays" as const, icon: Sparkles, labelKey: "sidebar.tabs.overlays" },
+    { id: "stickers" as const, icon: Smile, labelKey: "sidebar.tabs.stickers" },
+    // Clips tab: gated behind VITE_CLYPRA_CLIPS_TAB_ENABLED=1.
+    // Do NOT enable in production until the content catalog has been cleared:
+    // every item needs a signed release and a CC0-1.0 / Contributor license.
+    // Set VITE_CLYPRA_CLIPS_TAB_ENABLED=1 in .env to test locally.
+    ...(import.meta.env.VITE_CLYPRA_CLIPS_TAB_ENABLED === "1"
+      ? [{ id: "clips" as const, icon: ClipsTabIcon, labelKey: "sidebar.tabs.clips" }]
+      : []),
+    { id: "effects" as const, icon: Wand2, labelKey: "sidebar.tabs.effects" },
+    { id: "filters" as const, icon: Filter, labelKey: "sidebar.tabs.filters" },
+    {
+      id: "transitions" as const,
+      icon: Shuffle,
+      labelKey: "sidebar.tabs.transitions",
+    },
+    {
+      id: "captions" as const,
+      icon: MessageSquare,
+      labelKey: "sidebar.tabs.captions",
+    },
+  ] as const;
+}
 
 export interface SidebarProps extends MediaTabProps {
   width?: number;
@@ -105,7 +116,7 @@ const SidebarComponent: React.FC<SidebarProps> = ({
                   msOverflowStyle: "none",
                 }}
               >
-                {SIDEBAR_TABS.map((tab) => {
+                {getSidebarTabs().map((tab) => {
                   const Icon = tab.icon;
                   const isActive = activeTab === tab.id;
                   return (
@@ -145,7 +156,7 @@ const SidebarComponent: React.FC<SidebarProps> = ({
       {/* Tab Content or Collapsed Rail */}
       {collapsed ? (
         <div className="flex flex-col items-center gap-1.5 py-2 overflow-y-auto flex-1 scrollbar-none">
-          {SIDEBAR_TABS.map((tab) => {
+          {getSidebarTabs().map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (
@@ -188,6 +199,9 @@ const SidebarComponent: React.FC<SidebarProps> = ({
               )}
               {activeTab === "stickers" && (
                 <StickersTab onAddToTimeline={onAddToTimeline} />
+              )}
+              {activeTab === "clips" && (
+                <ClipsTab onAddToTimeline={onAddToTimeline} />
               )}
               {activeTab === "effects" && (
                 <EffectsPanel onAddToTimeline={onAddToTimeline} />

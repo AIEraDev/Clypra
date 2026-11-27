@@ -29,31 +29,40 @@
       "height": 50
     }
   ],
-  "clips": [],
-  "text_effects": [
+  "clips": [
     {
-      "id": "text-fx-anim-1",
+      "id": "clip-text-fx-1",
+      "kind": "text",
       "trackId": "track-t1",
-      "text": "Kinetic Motion Graphics",
+      "mediaId": "",
+      "name": "Animated Text Effect",
       "startTime": 0,
       "duration": 30,
-      "effectType": "fade_slide",
-      "animationProgress": 0.5,
-      "style": {
-        "fontSize": 64,
-        "fontFamily": "sans-serif",
-        "color": "#FFCC00",
-        "textAlign": "center"
+      "trimIn": 0,
+      "trimOut": 30,
+      "x": 460,
+      "y": 450,
+      "width": 1000,
+      "height": 180,
+      "opacity": 1,
+      "rotation": 0,
+      "text": "Kinetic Motion Graphics",
+      "fontSize": 64,
+      "fontFamily": "Inter",
+      "color": "#FFCC00",
+      "textAlign": "center",
+      "entranceAnimation": {
+        "type": "slide-up",
+        "duration": 1,
+        "easing": "ease-out"
       },
-      "transform": {
-        "position": {
-          "x": 960,
-          "y": 540
-        },
-        "scale": 1.2,
-        "rotation": 0
+      "exitAnimation": {
+        "type": "fade",
+        "duration": 1,
+        "easing": "ease-in"
       }
     }
   ],
+  "text_effects": [],
   "text_templates": []
 }

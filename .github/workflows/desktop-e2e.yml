@@ -17,6 +17,10 @@ on:
     paths:
       - "src-tauri/**"
       - "scripts/smoke-test-packaged-app.mjs"
+      - "scripts/verify-msix-staging.mjs"
+      - "scripts/msix-version.mjs"
+      - "scripts/msix-version.test.mjs"
+      - "package.json"
       - ".github/workflows/desktop-e2e.yml"
 
 permissions:
@@ -166,6 +170,9 @@ jobs:
       # ── Production Build & Frontend Smoke ───────────────────────────────────
       - name: Build Frontend Production Assets
         run: npm run build
+
+      - name: Test MSIX version normalization
+        run: npm run test:msix-version
 
       - name: Validate Packaged Bundle Integrity
         run: npm run smoke:bundle

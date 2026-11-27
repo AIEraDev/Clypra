@@ -5856,17 +5856,27 @@ export const NativeProgramPreview: React.FC = () => {
     const unsubscribeLifecycleWakeup =
       appLifecycleCoordinator.onForegroundWakeup(() => {
         if (!isActive) return;
+        const isHealthyPlaying =
+          renderStateRef.current.clock.state === "playing" &&
+          !nativePlaybackRenderFailed &&
+          nativeContinuousBlockedRevision === "";
         nativeContinuousFailureStreak = 0;
         nativeContinuousBlockedRevision = "";
         nativePlaybackRenderFailed = false;
         nativeBlockedKey = "";
         nativeFailureKey = "";
         nativeFailureCount = 0;
-        lastNativePlaybackRequestKey = "";
         nativeRetryAt = 0;
-        nativePlaybackInFlight = null;
-        visibleRequestGeneration += 1;
-        nativePreviewScheduler.setVisibleGeneration(visibleRequestGeneration);
+        // During healthy continuous playback, the native render session and
+        // audio clock keep advancing without interruption. Bumping
+        // visibleRequestGeneration here would trigger a recency cancellation
+        // barrier that wipes lookahead and forces dirty GOP recovery.
+        if (!isHealthyPlaying) {
+          lastNativePlaybackRequestKey = "";
+          nativePlaybackInFlight = null;
+          visibleRequestGeneration += 1;
+          nativePreviewScheduler.setVisibleGeneration(visibleRequestGeneration);
+        }
         forceRenderNeeded = true;
         scheduleNextFrame();
       });

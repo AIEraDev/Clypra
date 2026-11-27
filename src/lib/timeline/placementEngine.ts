@@ -43,6 +43,7 @@ import { getActiveSessionOrNull } from "@/core/runtime/ProjectSession";
 import { getPreviewInteractionCoordinator } from "@/core/interactions/PreviewInteractionCoordinator";
 import { getFrameStartTime } from "@/lib/utils/frameTime";
 import { resolveSticker } from "@/features/stickers/providers/stickerProviders";
+import { addClipToTimeline } from "@/features/clips/actions/addClipToTimeline";
 import type { StickerRef } from "@/features/stickers/types";
 
 export interface TimelinePlacementOptions {
@@ -166,6 +167,10 @@ export class TimelinePlacementEngine {
       const { tracks, clips } = timelineState;
 
       // ─── 1. Media Assets (Video, Audio, Image) ──────────────────────────────
+      if (type === "clips") {
+        return await addClipToTimeline(item);
+      }
+
       if (type === "media") {
         let mediaAsset: MediaAsset | undefined =
           item.id && projectState.mediaAssets.find((a) => a.id === item.id);

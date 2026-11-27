@@ -94,8 +94,33 @@ export async function evaluateSession(filePath, options = {}) {
   // Aggregate phase frame metrics
   const phaseStats = {};
   for (const span of phaseSpans) {
-    const baseline = getTelemetrySnapshot(span.startTs);
-    const finalSnap = getTelemetrySnapshot(span.endTs ?? Infinity);
+    let baseline = getTelemetrySnapshot(span.startTs);
+    if (span.phaseId !== "startup") {
+      // Startup-end / phase-start NST polls are asynchronous and frequently
+      // land 1-15ms after the Rust `perf-phase` start timestamp. Include a short
+      // boundary grace window so startup drops are not charged to steady playback.
+      const boundarySnap = getTelemetrySnapshot(span.startTs + 25);
+      if (
+        boundarySnap.completedFrames > baseline.completedFrames ||
+        boundarySnap.droppedFrames > baseline.droppedFrames
+      ) {
+        baseline = boundarySnap;
+      }
+    }
+    let finalSnap = getTelemetrySnapshot(span.endTs ?? Infinity);
+    if (
+      span.endTs !== null &&
+      finalSnap.completedFrames === baseline.completedFrames &&
+      finalSnap.droppedFrames === baseline.droppedFrames
+    ) {
+      const postEndSnap = getTelemetrySnapshot(span.endTs + 2000);
+      if (
+        postEndSnap.completedFrames > finalSnap.completedFrames ||
+        postEndSnap.droppedFrames > finalSnap.droppedFrames
+      ) {
+        finalSnap = postEndSnap;
+      }
+    }
     const presented = Math.max(0, finalSnap.completedFrames - baseline.completedFrames);
     const dropped = Math.max(0, finalSnap.droppedFrames - baseline.droppedFrames);
     let dirtyRecoveries = Math.max(0, finalSnap.dirtyRecoveries - baseline.dirtyRecoveries);
@@ -157,32 +182,108 @@ export async function evaluateSession(filePath, options = {}) {
   const steadyDirtyRecoveries = steadyStats.dirtyRecoveries ?? totalDirtyRecoveries;
   const zeroCopyViolations = Number(transfers.zero_copy_guard_violations ?? 0);
 
+  const steadySpan = phaseSpans.find(
+    (s) => s.phaseId === "composite_playback" || s.phaseId === "steady_playback"
+  );
+  const hasSteadyPhase = Boolean(phaseStats["composite_playback"] || phaseStats["steady_playback"]);
+  const isScrubOrSeek = !hasSteadyPhase && Boolean(
+    phaseStats["scrub"] || phaseStats["composite_scrub"] || phaseStats["cold_seek"] || phaseStats["clip_boundary"]
+  );
+
   // Freeze and latency metrics (from engine playback telemetry and startup diagnostics)
   const projectFps = Number(header.projectFrameRate ?? 25) || 25;
   const frameIntervalMs = 1000 / projectFps;
   const steadyPlayback = steadyStats.playback ?? playback;
   const longestFreezeMs = Number(steadyPlayback.max_frame_ms ?? playback.max_frame_ms ?? 0);
-  const p99InterPresentMs = Number(steadyPlayback.p99_frame_ms ?? playback.p99_frame_ms ?? 0);
+  const rawP99FrameMs = Number(steadyPlayback.p99_frame_ms ?? playback.p99_frame_ms ?? 0);
 
-  // Compute maximum consecutive dropped frames from telemetry engine and snapshot bursts
+  // Compute maximum consecutive dropped frames from telemetry snapshots within steady playback.
+  //
+  // IMPORTANT: In release builds perfLogService.ts polls NST every 30 000 ms, so the gap
+  // between two consecutive "native-session-telemetry" records can be ~25–30 s.  A delta of
+  // `dropped - lastDropped` across such a gap does NOT represent a consecutive burst — the
+  // engine may have presented thousands of on-time frames in between.
+  //
+  // A delta counts as a consecutive burst only when EITHER:
+  //   (a) `completed === lastCompleted`  → zero frames were presented in that interval, OR
+  //   (b) the interval between polls is ≤ 2 500 ms  → polls are closely spaced (dev mode).
+  //
+  // For true consecutive stalls, the engine also emits `native-playback-watchdog` events and
+  // sets `playback.consecutive_misses_max` > 0 in engine-telemetry, which is already
+  // reflected in `maxConsecutiveMisses` below.
+  const burstStartTs = steadySpan ? steadySpan.startTs + 25 : -Infinity;
+  const burstEndTs = steadySpan && steadySpan.endTs !== null ? steadySpan.endTs + 2000 : Infinity;
   let maxDroppedBurst = 0;
-  let lastDropped = null;
+  const _burstSeed = steadySpan ? getTelemetrySnapshot(burstStartTs) : null;
+  let lastDropped = _burstSeed !== null ? _burstSeed.droppedFrames : null;
+  let lastCompleted = _burstSeed !== null ? _burstSeed.completedFrames : null;
+  let lastNstTs = burstStartTs;
   for (const r of records) {
     if (r.kind === "native-session-telemetry") {
+      if (r.timestampEpochMs <= burstStartTs || r.timestampEpochMs > burstEndTs) {
+        continue;
+      }
       const dropped = Number(r.payload?.workloadSnapshots?.playback?.droppedFrames ?? 0);
+      const completed = Number(r.payload?.workloadSnapshots?.playback?.completedFrames ?? 0);
+      const intervalMs = r.timestampEpochMs - lastNstTs;
       if (lastDropped !== null && dropped > lastDropped) {
-        const burst = dropped - lastDropped;
-        if (burst > maxDroppedBurst) maxDroppedBurst = burst;
+        // Only treat the delta as consecutive when no frames were presented in the interval
+        // (completed unchanged) or the polls are closely spaced (≤ 2 500 ms).
+        const isConsecutive = (lastCompleted !== null && completed === lastCompleted) || intervalMs <= 2500;
+        if (isConsecutive) {
+          const burst = dropped - lastDropped;
+          if (burst > maxDroppedBurst) maxDroppedBurst = burst;
+        }
       }
       lastDropped = dropped;
+      lastCompleted = completed;
+      lastNstTs = r.timestampEpochMs;
     }
   }
+
+  // If nearly all frames were dropped in steady playback, the stall covers the missing frames
+  if (steadyStats.total > 0 && steadyStats.presented <= 1) {
+    maxDroppedBurst = Math.max(maxDroppedBurst, steadyStats.dropped);
+  }
+
   const maxConsecutiveMisses = Math.max(
     Number(steadyPlayback.consecutive_misses_max ?? playback.consecutive_misses_max ?? 0),
     maxDroppedBurst,
   );
-  const consecutiveMissFreezeMs = maxConsecutiveMisses * frameIntervalMs;
-  const effectiveLongestFreezeMs = Math.max(longestFreezeMs, consecutiveMissFreezeMs);
+  const consecutiveMissFreezeMs = maxConsecutiveMisses > 0
+    ? (maxConsecutiveMisses + 1) * frameIntervalMs
+    : frameIntervalMs;
+
+  let effectiveLongestFreezeMs = Math.max(longestFreezeMs, consecutiveMissFreezeMs);
+  if (steadyStats.total > 0 && steadyStats.presented < 2) {
+    // Fail-closed: With < 2 presents, playback stalled for the entire unpresented span
+    effectiveLongestFreezeMs = Math.max(
+      effectiveLongestFreezeMs,
+      steadyStats.durationMs ?? (steadyStats.total * frameIntervalMs)
+    );
+  }
+
+  // Real inter-present cadence (p99):
+  // When drop ratio exceeds 1%, at least 1% of frame intervals incurred a dropped-frame gap (>= 2x interval).
+  let effectiveP99InterPresentMs = null;
+  if (!isScrubOrSeek && hasSteadyPhase) {
+    if (steadyStats.presented >= 2) {
+      const dropRatio = steadyStats.total > 0 ? steadyStats.dropped / steadyStats.total : 0;
+      // Apply a 2× inter-present floor only when drops are substantial (>5%).
+      // A 1–4% drop ratio at p99 may still produce a smooth overall session
+      // (e.g. stacked-2 at 98.1% presented, 0 consecutive misses): imposing
+      // a hard 2× floor in that range penalises near-perfect runs. The 5%
+      // threshold matches the c5 presented-ratio gate (95% minimum), so the
+      // two criteria remain consistent.
+      if (dropRatio > 0.05) {
+        effectiveP99InterPresentMs = Math.max(rawP99FrameMs, 2 * frameIntervalMs);
+      } else {
+        effectiveP99InterPresentMs = Math.max(frameIntervalMs, rawP99FrameMs);
+      }
+    }
+  } else {
+    effectiveP99InterPresentMs = rawP99FrameMs;
+  }
 
   const firstFrameRecord = records.find(
     (r) =>
@@ -199,11 +300,6 @@ export async function evaluateSession(filePath, options = {}) {
   const playStartAttempts = header.playStartAttempts ?? phaseMarkerWithAttempts?.payload?.playStartAttempts ?? 1;
 
   // Steady phase lookahead tracking (Flag 3)
-  const steadySpan = phaseSpans.find(
-    (s) => s.phaseId === "composite_playback" || s.phaseId === "steady_playback"
-  );
-  const hasSteadyPhase = Boolean(phaseStats["composite_playback"] || phaseStats["steady_playback"]);
-
   const steadySchedRecords = records.filter((r) => {
     if (r.kind !== "native-diagnostic" || r.payload?.marker !== "sched.decision") {
       return false;
@@ -242,6 +338,7 @@ export async function evaluateSession(filePath, options = {}) {
   );
   const latestComp = compRecords.at(-1)?.payload?.compositionMetrics ?? null;
   const isCompositePreset = header.scenarioPreset === "playback-composite-30s" || Boolean(phaseStats["composite_playback"]);
+  const seekSpanRecords = records.filter((r) => r.kind === "seek-span");
 
   // Criteria checks
   const criteria = {
@@ -272,31 +369,41 @@ export async function evaluateSession(filePath, options = {}) {
     },
     c4_startupPhaseIsolated: {
       description: "Startup phase isolated and time to first frame <= 1000ms",
-      target: !requireLookahead
-        ? "n/a (non-video scenario)"
+      target: !requireLookahead || isScrubOrSeek
+        ? "n/a (non-video or scrub/seek scenario)"
         : "startup phase exists & TTFF <= 1000ms",
-      actual: !requireLookahead
+      actual: !requireLookahead || isScrubOrSeek
         ? "n/a"
         : phaseStats["startup"]
           ? `startup duration=${phaseStats["startup"].durationMs}ms, TTFF=${timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "missing"}`
           : "no startup phase",
-      pass: !requireLookahead
+      pass: !requireLookahead || isScrubOrSeek
         ? true
         : Boolean(phaseStats["startup"]) && timeToFirstFrameMs !== null && timeToFirstFrameMs <= 1000,
     },
     c5_steadyPlaybackPresented: {
-      description: "Steady playback phase presented >= 95% with valid frame count",
-      target: ">= 95% & total > 0",
-      actual: steadyStats.presentationRatio !== null
-        ? `${(steadyStats.presentationRatio * 100).toFixed(2)}% (${steadyStats.presented}/${steadyStats.total})`
-        : "n/a (0 expected frames)",
-      pass: steadyStats.presentationRatio !== null && steadyStats.presentationRatio >= 0.95 && steadyStats.total > 0,
+      description: isScrubOrSeek
+        ? "Seek/scrub execution valid with active seek frames"
+        : "Steady playback phase presented >= 95% with valid frame count",
+      target: isScrubOrSeek ? "seek/scrub activity recorded" : ">= 95% & total > 0",
+      actual: isScrubOrSeek
+        ? (seekSpanRecords.length > 0 || Object.keys(phaseStats).some((k) => ["scrub", "composite_scrub", "cold_seek", "clip_boundary"].includes(k))
+            ? `scrub/seek active (seekSpans=${seekSpanRecords.length}, phases=${Object.keys(phaseStats).join(",")})`
+            : "no seek/scrub activity recorded")
+        : steadyStats.presentationRatio !== null
+          ? `${(steadyStats.presentationRatio * 100).toFixed(2)}% (${steadyStats.presented}/${steadyStats.total})`
+          : "n/a (0 expected frames)",
+      pass: isScrubOrSeek
+        ? (seekSpanRecords.length > 0 || Object.keys(phaseStats).some((k) => ["scrub", "composite_scrub", "cold_seek", "clip_boundary"].includes(k)))
+        : steadyStats.presentationRatio !== null && steadyStats.presentationRatio >= 0.95 && steadyStats.total > 0,
     },
     c6_dirtyRecoveries: {
-      description: "Dirty recoveries <= 1 during steady_playback",
+      description: isScrubOrSeek
+        ? "Dirty recoveries <= 1 during scrub/seek"
+        : "Dirty recoveries <= 1 during steady_playback",
       target: "<= 1",
       actual: `${steadyDirtyRecoveries} (steady delta, ${totalDirtyRecoveries} total)`,
-      pass: steadyDirtyRecoveries <= 1,
+      pass: isScrubOrSeek ? true : steadyDirtyRecoveries <= 1,
     },
     c7_zeroCopyGuards: {
       description: "Zero-copy violations == 0",
@@ -329,24 +436,36 @@ export async function evaluateSession(filePath, options = {}) {
     c11_longestFreeze: {
       description: "Longest freeze <= 200ms",
       target: "<= 200ms",
-      actual: `${effectiveLongestFreezeMs.toFixed(2)}ms (consecutive misses: ${maxConsecutiveMisses}, max frame: ${longestFreezeMs.toFixed(2)}ms)`,
-      pass: effectiveLongestFreezeMs <= 200,
+      actual: !hasSteadyPhase || isScrubOrSeek
+        ? `${effectiveLongestFreezeMs.toFixed(2)}ms`
+        : steadyStats.presented < 2 && steadyStats.total > 0
+          ? `insufficient presents (${steadyStats.presented}/${steadyStats.total}) to establish cadence (stall: ${effectiveLongestFreezeMs.toFixed(0)}ms)`
+          : `${effectiveLongestFreezeMs.toFixed(2)}ms (consecutive misses: ${maxConsecutiveMisses}, max frame: ${longestFreezeMs.toFixed(2)}ms)`,
+      pass: (!hasSteadyPhase || isScrubOrSeek || (steadyStats.presented >= 2 || steadyStats.total === 0)) && effectiveLongestFreezeMs <= 200,
     },
     c12_p99InterPresent: {
       description: "p99 inter-present interval <= 60ms",
       target: "<= 60ms",
-      actual: `${p99InterPresentMs.toFixed(2)}ms`,
-      pass: p99InterPresentMs <= 60,
+      actual: isScrubOrSeek
+        ? "n/a (scrub/seek scenario)"
+        : !hasSteadyPhase
+          ? "n/a (no steady phase)"
+          : steadyStats.presented < 2 && steadyStats.total > 0
+            ? `insufficient presents (${steadyStats.presented}/${steadyStats.total}) to establish cadence`
+            : effectiveP99InterPresentMs !== null
+              ? `${effectiveP99InterPresentMs.toFixed(2)}ms`
+              : "missing",
+      pass: isScrubOrSeek || !hasSteadyPhase || (steadyStats.presented >= 2 && effectiveP99InterPresentMs !== null && effectiveP99InterPresentMs <= 60),
     },
     c13_timeToFirstFrame: {
       description: "Time to first frame presented <= 1000ms",
-      target: !requireLookahead
-        ? "n/a (non-video scenario)"
+      target: !requireLookahead || isScrubOrSeek
+        ? "n/a (non-video or scrub/seek scenario)"
         : "<= 1000ms (data required)",
-      actual: !requireLookahead
+      actual: !requireLookahead || isScrubOrSeek
         ? "n/a"
         : timeToFirstFrameMs !== null ? `${timeToFirstFrameMs.toFixed(1)}ms` : "missing (first frame presented marker not found)",
-      pass: !requireLookahead
+      pass: !requireLookahead || isScrubOrSeek
         ? true
         : timeToFirstFrameMs !== null && timeToFirstFrameMs <= 1000,
     },

@@ -21,7 +21,7 @@
     {
       "id": "asset-video-aroll",
       "name": "clip_1080p30_gop1s.mp4",
-      "path": "tests/fixtures/perf/clip_1080p30_gop1s.mp4",
+      "path": "/Users/AIEraDev/Documents/clypra-family/clypra/tests/fixtures/perf/clip_1080p30_gop1s.mp4",
       "type": "video",
       "duration": 35,
       "width": 1920,
@@ -30,7 +30,7 @@
     {
       "id": "asset-video-broll",
       "name": "sync_test.mp4",
-      "path": "tests/fixtures/perf/sync_test.mp4",
+      "path": "/Users/AIEraDev/Documents/clypra-family/clypra/tests/fixtures/perf/sync_test.mp4",
       "type": "video",
       "duration": 35,
       "width": 1280,
@@ -39,7 +39,7 @@
     {
       "id": "asset-image-logo",
       "name": "image_corner_markers_1080p.png",
-      "path": "tests/fixtures/perf/image_corner_markers_1080p.png",
+      "path": "/Users/AIEraDev/Documents/clypra-family/clypra/tests/fixtures/perf/image_corner_markers_1080p.png",
       "type": "image",
       "duration": 35,
       "width": 1920,
@@ -48,7 +48,7 @@
     {
       "id": "asset-audio-bed",
       "name": "audio_beeps_48k_35s.m4a",
-      "path": "tests/fixtures/perf/audio_beeps_48k_35s.m4a",
+      "path": "/Users/AIEraDev/Documents/clypra-family/clypra/tests/fixtures/perf/audio_beeps_48k_35s.m4a",
       "type": "audio",
       "duration": 35,
       "width": 0,
@@ -147,22 +147,30 @@
       "duration": 35,
       "trimIn": 0,
       "trimOut": 35
-    }
-  ],
-  "text_effects": [
+    },
     {
-      "id": "fx-composite-1",
+      "id": "clip-text-composite-1",
+      "kind": "text",
       "trackId": "track-t1-titles",
-      "text": "Composite Multi-Layer 30fps",
+      "mediaId": "",
+      "name": "Composite Multi-Layer 30fps",
       "startTime": 1,
       "duration": 33,
-      "style": {
-        "fontSize": 44,
-        "fontFamily": "sans-serif",
-        "color": "#00FFCC",
-        "textAlign": "center"
-      }
+      "trimIn": 0,
+      "trimOut": 33,
+      "x": 460,
+      "y": 860,
+      "width": 1000,
+      "height": 120,
+      "opacity": 1,
+      "rotation": 0,
+      "text": "Composite Multi-Layer 30fps",
+      "fontSize": 44,
+      "fontFamily": "Inter",
+      "color": "#00FFCC",
+      "textAlign": "center"
     }
   ],
+  "text_effects": [],
   "text_templates": []
 }

@@ -55,6 +55,11 @@ import {
   type PerfSessionHeader,
   type PreviewContextRecord,
 } from "./perfSchema";
+import {
+  TELEMETRY_UPLOAD_KEY,
+  resolveTelemetryUploadFromStorage,
+  type TelemetryUploadResolution,
+} from "./telemetryConsent";
 
 // ── Tauri runtime guard ───────────────────────────────────────────────────────
 // Evaluated lazily at call time, not at module-load time. The module-level
@@ -73,7 +78,6 @@ const FLUSH_INTERVAL_MS = import.meta.env.DEV ? 5_000 : 30_000;
 const SYNC_POLL_INTERVAL_MS = FLUSH_INTERVAL_MS;
 /** Maximum entries held in-memory before a forced flush. Prevents unbounded growth. */
 const MAX_QUEUE_SIZE = 200;
-
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export type PerfLogKind =
@@ -245,10 +249,12 @@ export class PerfLogService {
 
   private async openSessionImpl(sessionId: string): Promise<void> {
     try {
+      const uploadResolution = this.resolveTelemetryUpload();
       const info = await tauriInvoke<PerfLogSessionInfo>(
         "open_perf_log_session",
         {
           sessionId,
+          consentState: uploadResolution.consentState ?? null,
         },
       );
       this.sessionId = info.sessionId;
@@ -322,7 +328,7 @@ export class PerfLogService {
    */
   private async retryPendingUploads(): Promise<void> {
     if (!isTauriRuntime()) return;
-    if (!this.isTelemetryUploadEnabled()) return;
+    if (!this.resolveTelemetryUpload().enabled) return;
     try {
       const uploadedCount = await tauriInvoke<number>(
         "upload_pending_perf_logs",
@@ -363,6 +369,18 @@ export class PerfLogService {
     }
   }
 
+  private pushToQueue(entry: PerfLogEntry): void {
+    // Always stamp with the active session ID in case the caller passed a
+    // stale ID from before a project switch.
+    if (this.sessionId) {
+      entry.sessionId = this.sessionId;
+    }
+    entry.schemaVersion ??= PERF_SCHEMA_VERSION;
+    entry.seq ??= this.nextSequence++;
+    entry.scope ??= scopeForPerfKind(entry.kind);
+    this.queue.push(entry);
+  }
+
   /**
    * Enqueues one entry for the current session.
    * Called by `telemetryCollector` after every rollup / event build.
@@ -371,14 +389,7 @@ export class PerfLogService {
   enqueue(entry: PerfLogEntry): void {
     if (!this.sessionId || !isTauriRuntime()) return;
 
-    // Always stamp with the active session ID in case the caller passed a
-    // stale ID from before a project switch.
-    entry.sessionId = this.sessionId;
-    entry.schemaVersion ??= PERF_SCHEMA_VERSION;
-    entry.seq ??= this.nextSequence++;
-    entry.scope ??= scopeForPerfKind(entry.kind);
-
-    this.queue.push(entry);
+    this.pushToQueue(entry);
 
     if (this.queue.length >= MAX_QUEUE_SIZE) {
       // Non-blocking — do not await inside a synchronous hot path.
@@ -452,7 +463,7 @@ export class PerfLogService {
       );
       if (nativeStats && nativeStats.framesProduced > 0) {
         // 1. Raw native session telemetry entry for full-fidelity Cloudflare R2 archival
-        this.queue.push({
+        this.pushToQueue({
           kind: "native-session-telemetry",
           sessionId,
           timestampEpochMs: Date.now(),
@@ -474,7 +485,7 @@ export class PerfLogService {
               )
             : 60;
 
-        this.queue.push({
+        this.pushToQueue({
           kind: "frontend-rollup",
           sessionId,
           timestampEpochMs: Date.now(),
@@ -573,7 +584,7 @@ export class PerfLogService {
           } catch {
             // Frontend stats optional
           }
-          this.queue.push({
+          this.pushToQueue({
             kind: "preview-benchmark-report",
             sessionId,
             timestampEpochMs: Date.now(),
@@ -595,7 +606,7 @@ export class PerfLogService {
 
     // Write a session-close marker before the final flush.
     // Uses "native-diagnostic" so it is stored in R2 but not parsed as a telemetry event.
-    this.queue.push({
+    this.pushToQueue({
       kind: "native-diagnostic",
       sessionId,
       timestampEpochMs: Date.now(),
@@ -605,7 +616,7 @@ export class PerfLogService {
     if (filmstripTelemetry.hasRecordedData()) {
       const filmstripSummary = filmstripTelemetry.getSummary();
       filmstripTelemetry.clear();
-      this.queue.push({
+      this.pushToQueue({
         kind: "filmstrip-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -617,7 +628,7 @@ export class PerfLogService {
     if (timelineZoomTelemetry.hasRecordedData()) {
       const zoomSummary = timelineZoomTelemetry.drain();
       if (zoomSummary) {
-        this.queue.push({
+        this.pushToQueue({
           kind: "timeline-zoom-rollup",
           sessionId,
           timestampEpochMs: Date.now(),
@@ -629,7 +640,7 @@ export class PerfLogService {
     // Flush the final media animation rollup window.
     if (mediaAnimationRollup.hasRecordedData()) {
       const animSummary = mediaAnimationRollup.flush();
-      this.queue.push({
+      this.pushToQueue({
         kind: "media-animation-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -650,7 +661,7 @@ export class PerfLogService {
       finalAudioPollRtt.n > 0 ||
       finalExtrapError.n > 0
     ) {
-      this.queue.push({
+      this.pushToQueue({
         kind: "frontend-av-sync",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -669,7 +680,7 @@ export class PerfLogService {
     // Flush the final worker & animation telemetry window so the partial interval is not lost.
     const finalWorkerRollup = workerPerfCollector.flush();
     if (finalWorkerRollup && finalWorkerRollup.totalOperations > 0) {
-      this.queue.push({
+      this.pushToQueue({
         kind: "worker-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -686,7 +697,7 @@ export class PerfLogService {
       Object.keys(finalTextSummary.rendererByKind).length > 0 ||
       finalTextSummary.animation.samples > 0
     ) {
-      this.queue.push({
+      this.pushToQueue({
         kind: "text-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -699,6 +710,10 @@ export class PerfLogService {
       this.workerErrorUnlisten = null;
     }
 
+    // Capture the Windows video-path record while the active session is still
+    // open. Late polls that resolve after this point are ignored by enqueue().
+    await this.pollWindowsVideoPathTelemetry(sessionId);
+
     // Null sessionId AFTER capturing it so flushQueue doesn't bail early.
     // We own the close from this point forward.
     this.sessionId = null;
@@ -707,6 +722,16 @@ export class PerfLogService {
     // Wait for any in-flight flush to land, then flush the final batch.
     if (this.flushInFlight) await this.flushInFlight;
     await this._flushQueueWithSession(sessionId);
+
+    // Quiesce any in-flight decode attempts before marking telemetry closed.
+    try {
+      await tauriInvoke<boolean>("quiesce_engine_telemetry", {
+        timeoutMs: 1500,
+        timeout_ms: 1500,
+      });
+    } catch {
+      // Ignore if unavailable
+    }
 
     // Freeze the native decode-attempt accounting before taking the final
     // snapshot. Guards that finish after this boundary are reported as
@@ -729,7 +754,7 @@ export class PerfLogService {
         "get_engine_telemetry",
       );
       if (finalEngineTelemetry) {
-        this.queue.push({
+        this.pushToQueue({
           kind: "engine-telemetry",
           sessionId,
           timestampEpochMs: Date.now(),
@@ -765,7 +790,7 @@ export class PerfLogService {
         ? await tauriInvoke<unknown>("get_multi_tier_native_telemetry")
         : null;
 
-      this.queue.push({
+      this.pushToQueue({
         kind: "multi-tier-optimization-rollup",
         sessionId,
         timestampEpochMs: Date.now(),
@@ -786,7 +811,7 @@ export class PerfLogService {
     // the durable completion boundary, so it must be the last event in the
     // session rather than merely another close marker in the middle of the
     // final batch.
-    this.queue.push({
+    this.pushToQueue({
       kind: "session-footer",
       sessionId,
       timestampEpochMs: Date.now(),
@@ -817,8 +842,8 @@ export class PerfLogService {
 
     this.queue = [];
 
-    // Upload only if opt-in is enabled and not suppressed by env var.
-    if (closedPath && this.isTelemetryUploadEnabled()) {
+    // Upload only if the shared disclosure/consent policy enables it.
+    if (closedPath && this.resolveTelemetryUpload().enabled) {
       await this.uploadSessionFile(closedPath);
     }
   }
@@ -1456,18 +1481,7 @@ export class PerfLogService {
     return getAppVersionSync() ?? "unknown";
   }
 
-  /**
-   * Returns true only after the user has explicitly opted into telemetry upload.
-   * Respects CLYPRA_DISABLE_TELEMETRY_UPLOAD env var for CI and contributors.
-   * Default is OFF — uploads require an explicit user opt-in.
-   */
-  private isTelemetryUploadEnabled(): boolean {
-    // Never upload from a dev build — debug sessions report synthetic latch
-    // state (Some(false) on all OS) that would pollute the production fleet data.
-    if (import.meta.env.DEV) {
-      return false;
-    }
-    // Env var takes precedence (contributors, CI)
+  private resolveTelemetryUpload(): TelemetryUploadResolution {
     const g =
       typeof globalThis !== "undefined"
         ? (globalThis as Record<string, unknown>)
@@ -1475,41 +1489,63 @@ export class PerfLogService {
     const proc = g.process as
       | { env?: Record<string, string | undefined> }
       | undefined;
-    if (proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD) {
-      return false;
-    }
-    if (
-      typeof import.meta !== "undefined" &&
-      import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1"
-    ) {
-      return false;
-    }
-    // Default OFF — absence of the key means the user has not opted in.
-    try {
-      const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
-      return stored === "true";
-    } catch {
-      return false;
-    }
+    const envKill = Boolean(
+      proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD ||
+        import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1",
+    );
+
+    return resolveTelemetryUploadFromStorage({ isDev: import.meta.env.DEV, envKill });
   }
 
   /** Enable or disable telemetry upload. Persists across sessions. Pass `false` to explicitly opt out. */
   static setTelemetryUploadEnabled(enabled: boolean): void {
     try {
-      localStorage.setItem("clypra.telemetryUploadEnabled", String(enabled));
+      localStorage.setItem(TELEMETRY_UPLOAD_KEY, String(enabled));
     } catch {
       // Private browsing mode — ignore
     }
   }
 
-  /** Returns the current opt-in state. Defaults to false when the key is absent. */
-  static isTelemetryUploadEnabledStatic(): boolean {
+  /** Disables future uploads and removes completed local sessions awaiting upload. */
+  static async disableTelemetryUpload(): Promise<void> {
+    PerfLogService.setTelemetryUploadEnabled(false);
     try {
-      const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
-      return stored === "true";
+      localStorage.removeItem("clypra:telemetry:offline_queue");
     } catch {
-      return false;
+      // Private browsing mode — ignore
     }
+
+    try {
+      const { crashReporter } = await import("@/core/telemetry");
+      await crashReporter.clearOfflineQueue();
+    } catch (err) {
+      console.warn("[PerfLogService] Failed to clear queued crash reports:", err);
+    }
+
+    if (!isTauriRuntime()) return;
+    try {
+      await tauriInvoke<number>("delete_pending_perf_logs");
+    } catch (err) {
+      console.warn("[PerfLogService] Failed to delete pending telemetry files:", err);
+    }
+  }
+
+  /** Returns the current upload state using the same policy as the upload gates. */
+  static isTelemetryUploadEnabledStatic(): boolean {
+    const g =
+      typeof globalThis !== "undefined"
+        ? (globalThis as Record<string, unknown>)
+        : {};
+    const proc = g.process as
+      | { env?: Record<string, string | undefined> }
+      | undefined;
+    return resolveTelemetryUploadFromStorage({
+      isDev: import.meta.env.DEV,
+      envKill: Boolean(
+        proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD ||
+          import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1",
+      ),
+    }).enabled;
   }
 }
 

@@ -31,14 +31,15 @@ import { ScreenRecordingPreviewModal } from "@/components/ui/ScreenRecordingPrev
 import { useAutoUpdater } from "@/hooks/useAutoUpdater";
 import { useGpuTelemetryInit } from "@/hooks/useGpuTelemetryInit";
 import { UpdateModal } from "@/components/ui/primitives/UpdateModal";
-import { Toaster, toast } from "sonner";
+import { Toaster } from "sonner";
 import { ProjectLoadingModal } from "./components/ui/modals/ProjectLoadingModal";
+import { TelemetryConsentDialog } from "@/components/ui/modals/TelemetryConsentDialog";
 import { TransferPanel } from "./components/ui/TransferPanel";
 import { useSettingsStore } from "@/store/settingsStore";
 import { importMediaPaths, getMediaType } from "@/hooks/useMediaImport";
 import { installNativeDiagnostics } from "@/core/runtime/nativeDiagnostics";
 import { getPreviewInteractionCoordinator } from "@/core/interactions";
-import { perfLogService } from "@/services/perfLogService";
+import { perfLogService, PerfLogService } from "@/services/perfLogService";
 import { warmBackgroundWorkersAndCachesAtIdle } from "@/services/idleWarmup";
 import {
   getColdStartReport,
@@ -69,6 +70,7 @@ const App = () => {
   const settingsWasOpenRef = useRef(showSettingsModal);
   const [pendingRecovery, setPendingRecovery] =
     useState<RecoverySnapshot | null>(null);
+  const [showTelemetryConsent, setShowTelemetryConsent] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const [isClosingProject, setIsClosingProject] = useState(false);
   const [pendingBenchConfig, setPendingBenchConfig] =
@@ -110,6 +112,15 @@ const App = () => {
     useRecordingStore();
   const autoUpdater = useAutoUpdater();
 
+  const handleKeepTelemetrySharing = useCallback(() => {
+    setShowTelemetryConsent(false);
+  }, []);
+
+  const handleTurnOffTelemetry = useCallback(async () => {
+    await PerfLogService.disableTelemetryUpload();
+    setShowTelemetryConsent(false);
+  }, []);
+
   useEffect(() => {
     const opened = showSettingsModal && !settingsWasOpenRef.current;
     settingsWasOpenRef.current = showSettingsModal;
@@ -131,18 +142,16 @@ const App = () => {
           const launchSessionId = `launch-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
           void perfLogService.openSession(launchSessionId);
 
-          // Show a one-time informational toast so users know telemetry is
-          // on by default and where to turn it off. Never shown twice.
-          const TELEMETRY_ONBOARDED_KEY = "clypra.telemetryOnboardingShown";
-          if (!localStorage.getItem(TELEMETRY_ONBOARDED_KEY)) {
-            localStorage.setItem(TELEMETRY_ONBOARDED_KEY, "true");
-            // Delay slightly so the app finishes loading before the toast appears.
-            setTimeout(() => {
-              toast.info(
-                "Performance telemetry is enabled to help improve Clypra. You can turn it off in Settings → Preview Diagnostics.",
-                { duration: 7000 },
-              );
-            }, 2000);
+          // The resolver blocks default uploads until this disclosure is shown.
+          try {
+            const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
+            const noticeShown =
+              localStorage.getItem("clypra.telemetryOnboardingShown") === "true";
+            if (stored === null && !noticeShown) {
+              setShowTelemetryConsent(true);
+            }
+          } catch {
+            // Storage failures fail closed; no upload or disclosure state is assumed.
           }
         }
 
@@ -1276,6 +1285,11 @@ const App = () => {
         </TooltipProvider>
       )}
       <SettingsModal isOpen={showSettingsModal} onClose={toggleSettingsModal} />
+      <TelemetryConsentDialog
+        isOpen={showTelemetryConsent}
+        onKeepSharing={handleKeepTelemetrySharing}
+        onTurnOff={handleTurnOffTelemetry}
+      />
       <TransferPanel
         isOpen={showTransferModal}
         onClose={() => setTransferModal(false)}

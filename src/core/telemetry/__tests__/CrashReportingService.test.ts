@@ -5,6 +5,7 @@ import {
   type CrashEnvelope,
 } from "../CrashReportingService";
 import { lifecycleMonitor } from "@/core/monitoring/LifecycleMonitor";
+import { APP_VERSION } from "@/lib/app/appVersion";
 
 describe("CrashReportingService & Telemetry Pipeline", () => {
   let service: CrashReportingService;
@@ -12,6 +13,14 @@ describe("CrashReportingService & Telemetry Pipeline", () => {
   beforeEach(() => {
     service = new CrashReportingService();
     vi.restoreAllMocks();
+    vi.stubEnv("DEV", false);
+    lifecycleMonitor.clear();
+    localStorage.clear();
+    localStorage.setItem("clypra.telemetryOnboardingShown", "true");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   describe("PII and Secret Redaction (scrubPII)", () => {
@@ -68,7 +77,9 @@ describe("CrashReportingService & Telemetry Pipeline", () => {
       expect(envelope.system).toBeDefined();
       expect(envelope.system.os).toBeDefined();
       expect(envelope.breadcrumbs.length).toBeGreaterThanOrEqual(2);
-      expect(envelope.app.activeProjectId).toBe("proj-1");
+      expect(envelope.app.version).toBe(APP_VERSION);
+      expect(envelope.app).not.toHaveProperty("activeProjectId");
+      expect(envelope.breadcrumbs[0]).not.toHaveProperty("projectId");
     });
   });
 
@@ -126,6 +137,29 @@ describe("CrashReportingService & Telemetry Pipeline", () => {
       });
 
       expect(result).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("uses the shared consent gate before the disclosure is shown", async () => {
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+      localStorage.removeItem("clypra.telemetryOnboardingShown");
+
+      const result = await service.reportCrash({
+        crashType: "SUBSYSTEM_ERROR",
+        error: "Should wait for disclosure",
+      });
+
+      expect(result).toBeNull();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("does not flush queued crashes after explicit opt-out", async () => {
+      localStorage.setItem("clypra.telemetryUploadEnabled", "false");
+      const fetchMock = vi.fn();
+      globalThis.fetch = fetchMock;
+
+      await expect(service.flushOfflineQueue()).resolves.toBe(0);
       expect(fetchMock).not.toHaveBeenCalled();
     });
   });

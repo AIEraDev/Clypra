@@ -40,6 +40,20 @@ function valueAfter(args, flag, fallback = null) {
   return index >= 0 && args[index + 1] ? args[index + 1] : fallback;
 }
 
+/** Collect all consecutive non-flag tokens after every occurrence of `flag`. */
+function valuesAfter(args, flag) {
+  const results = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === flag) {
+      let j = i + 1;
+      while (j < args.length && !args[j].startsWith("--")) {
+        results.push(args[j++]);
+      }
+    }
+  }
+  return results.length > 0 ? results : null;
+}
+
 export function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -388,6 +402,7 @@ export async function runSingleScenarioIteration(spec, binaryPath, isolatedDataD
     lintResult,
     evalResult,
     rawStdout: stdout,
+    rawStderr: stderr,
   };
 }
 
@@ -397,7 +412,7 @@ export async function runSingleScenarioIteration(spec, binaryPath, isolatedDataD
 export async function runPerfCycle(options = {}) {
   const isGate = options.gate === true;
   const repeats = Number(options.repeats) || (isGate ? 3 : 1);
-  const cooldownMs = Number(options.cooldownMs) || (isGate ? 5000 : 2000);
+  const cooldownMs = Number(options.cooldownMs) || (isGate ? 8000 : 2000);
   const mediaDir = path.resolve(options.mediaDir || "tests/fixtures/perf");
   const projectsDir = path.resolve(options.projectsDir || "scripts/perf/fixtures");
   const binaryPath = path.resolve(
@@ -432,7 +447,8 @@ export async function runPerfCycle(options = {}) {
   // 3. Plan scenarios
   let scenarioNames = [];
   if (options.scenario) {
-    scenarioNames = [options.scenario];
+    // options.scenario is an array (valuesAfter returns string[] | null)
+    scenarioNames = Array.isArray(options.scenario) ? options.scenario : [options.scenario];
   } else if (options.tier) {
     const map = JSON.parse(await readFile("scripts/perf/scenario-map.json", "utf8"));
     if (options.tier === "all") {
@@ -455,6 +471,15 @@ export async function runPerfCycle(options = {}) {
   let allPass = true;
 
   for (let sIdx = 0; sIdx < scenarioNames.length; sIdx++) {
+    // Inter-scenario thermal cooldown: in gate mode, pause between scenarios
+    // so that VTB hardware sessions from the previous scenario fully release
+    // before the next one starts.  This prevents thermal accumulation from
+    // causing spurious freeze failures in later scenarios (steady-25fps c11
+    // threshold exceeded after multiple consecutive 30s video runs).
+    if (sIdx > 0 && isGate && cooldownMs > 0) {
+      console.log(`  [inter-scenario cooldown ${cooldownMs}ms]`);
+      await sleep(cooldownMs);
+    }
     const sName = scenarioNames[sIdx];
     const spec = resolveScenarioSpec(sName, mediaDir, projectsDir);
     console.log(`[${sIdx + 1}/${scenarioNames.length}] Running Scenario: ${sName} (${spec.description})`);
@@ -475,21 +500,45 @@ export async function runPerfCycle(options = {}) {
           const lookaheadStr = ev.criteria.c14_lookaheadDepthSteady ? ev.criteria.c14_lookaheadDepthSteady.actual : "n/a";
           console.log(`    Result: ${iter.pass ? "✅ PASS" : "❌ FAIL"} | Presented: ${ratioVal} | Freeze: ${freezeStr} | Lookahead: ${lookaheadStr}`);
           if (!iter.pass) {
-            console.log("    Failing criteria:");
+            let hasFailingCriteria = false;
             for (const [key, crit] of Object.entries(ev.criteria || {})) {
               if (!crit.pass) {
+                if (!hasFailingCriteria) {
+                  console.log("    Failing criteria:");
+                  hasFailingCriteria = true;
+                }
                 console.log(`      ❌ ${key}: actual=${crit.actual} target=${crit.target}`);
               }
             }
+            if (iter.lintResult && !iter.lintResult.trusted) {
+              console.log(`    ❌ Session Lint Untrusted (grade: ${iter.lintResult.grade}):`);
+              for (const err of iter.lintResult.errors || []) {
+                console.log(`      - [${err.code}] Line ${err.line}: ${err.message}`);
+              }
+              for (const warn of iter.lintResult.warnings || []) {
+                console.log(`      - (warn) [${warn.code}] Line ${warn.line}: ${warn.message}`);
+              }
+            }
+            if (iter.exitCode !== 0) {
+              console.log(`    ❌ Process exited with non-zero code: ${iter.exitCode}`);
+            }
             if (iter.rawStdout) {
               console.log("    Runner stdout:\n" + iter.rawStdout.slice(-1500));
+            }
+            if (iter.rawStderr) {
+              console.log("    Runner stderr:\n" + iter.rawStderr.slice(-4000));
             }
           }
         } else {
           console.log(`    Result: ❌ FAIL (${iter.error || "Execution failed"})`);
         }
 
-        if (!iter.pass) allPass = false;
+        if (!iter.pass) {
+          allPass = false;
+          if (iter.footerPath && (await fileExists(iter.footerPath))) {
+            await copyFile(iter.footerPath, "/tmp/last-failed-perf-session.ndjson").catch(() => {});
+          }
+        }
       } finally {
         await rm(isolatedDataDir, { recursive: true, force: true });
       }
@@ -555,10 +604,11 @@ async function main() {
   const options = {
     gate: argv.includes("--gate"),
     fast: argv.includes("--fast") || !argv.includes("--gate"),
-    scenario: valueAfter(argv, "--scenario"),
+    scenario: valuesAfter(argv, "--scenario"),
     tier: valueAfter(argv, "--tier"),
     auto: argv.includes("--auto"),
-    repeats: valueAfter(argv, "--repeats"),
+    // --runs is the documented flag; --repeats is kept as an internal alias
+    repeats: valueAfter(argv, "--runs") || valueAfter(argv, "--repeats"),
     cooldownMs: valueAfter(argv, "--cooldown-ms"),
     bin: valueAfter(argv, "--bin"),
     mediaDir: valueAfter(argv, "--media-dir"),
