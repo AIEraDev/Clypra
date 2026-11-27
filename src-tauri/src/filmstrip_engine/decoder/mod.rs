@@ -1514,6 +1514,7 @@ impl VideoDecoder {
                     (*ctx.as_mut_ptr()).thread_count = thread_count;
                     (*ctx.as_mut_ptr()).thread_type =
                         ffmpeg::ffi::FF_THREAD_FRAME | ffmpeg::ffi::FF_THREAD_SLICE;
+                    #[cfg(target_os = "windows")]
                     let hw_device_ctx = (*ctx.as_mut_ptr()).hw_device_ctx;
                     let decoder = ctx.decoder().video().map_err(|e| e.to_string())?;
                     let w = decoder.width();
