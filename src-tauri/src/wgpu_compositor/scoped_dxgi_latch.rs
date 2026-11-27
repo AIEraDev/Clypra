@@ -293,6 +293,12 @@ impl ScopedDxgiLatch {
             return false;
         }
 
+        // NEGATIVE CONTROL: intentionally ignore the requested stream class.
+        // A class latch must not disable unrelated classes.
+        if self.classes.iter().any(|entry| entry.value().latched) {
+            return false;
+        }
+
         let now_ms = self.clock.now_ms();
         let mut entry = self.classes.entry(class.clone()).or_default();
         if !entry.latched {
