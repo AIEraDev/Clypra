@@ -255,6 +255,9 @@ jobs:
       - name: Verify bundled media runtime
         run: node scripts/verify-sidecars.mjs --target ${{ matrix.target }}
 
+      - name: Verify bundled FFmpeg with clean PATH
+        run: node scripts/verify-clean-path-export.mjs
+
       - name: Run Vitest Suite
         run: npx vitest run
 

@@ -89,6 +89,9 @@ jobs:
       - name: Verify bundled media runtime
         run: node scripts/verify-sidecars.mjs --target x86_64-pc-windows-msvc
 
+      - name: Verify bundled FFmpeg with clean PATH
+        run: node scripts/verify-clean-path-export.mjs
+
       - name: Verify MSIX Staging & Assets
         run: npm run verify:msix
 

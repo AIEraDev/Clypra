@@ -10,12 +10,10 @@ pub fn decode_with_ffmpeg_cli(
     target_channels: u16,
 ) -> Result<DecodedAudioClip, String> {
     // Use binary_resolver which verifies genuine executables (rejecting non-PE batch stubs on Windows)
-    // and checks bundled ffmpeg-static/bin/, application directory, augmented system PATH, etc.
+    // and checks the bundled application/workspace sidecar. Release builds do
+    // not fall back to a user-managed PATH installation.
     if crate::commands::binary_resolver::resolve_binary_path("ffmpeg").is_none() {
-        return Err(
-            "FFmpeg executable not found on system. Please install FFmpeg or run scripts/setup-sidecars.ps1"
-                .to_string(),
-        );
+        return Err("Clypra's bundled FFmpeg runtime is unavailable. Reinstall the application or use a development build with its sidecars configured.".to_string());
     }
 
     let mut command = crate::commands::binary_resolver::create_std_command("ffmpeg");

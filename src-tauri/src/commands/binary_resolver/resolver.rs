@@ -59,12 +59,15 @@ pub fn resolve_binary_path(base_name: &str) -> Option<PathBuf> {
         }
     }
 
-    // Strict isolation guard: if CLYPRA_REQUIRE_BUNDLED_MEDIA is set, disallow system PATH fallback
-    if std::env::var("CLYPRA_REQUIRE_BUNDLED_MEDIA")
-        .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+    // Release builds must use the verified sidecars shipped with the app. The
+    // debug-only PATH fallback keeps local development convenient without
+    // allowing a packaged build to silently depend on a user installation.
+    if media_binary_requires_bundle(base_name)
+        || std::env::var("CLYPRA_REQUIRE_BUNDLED_MEDIA")
+            .is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"))
     {
         log::error!(
-            "[BinaryResolver] CLYPRA_REQUIRE_BUNDLED_MEDIA is active but '{}' was not found in Tier 1 or Tier 2. Refusing system PATH fallback.",
+            "[BinaryResolver] Bundled media runtime is required but '{}' was not found in Tier 1 or Tier 2. Refusing system PATH fallback.",
             base_name
         );
         return None;
@@ -146,11 +149,14 @@ pub fn candidate_binary_names(base_name: &str) -> Vec<String> {
 /// The command is configured with `CREATE_NO_WINDOW` on Windows and default null stdin.
 pub fn create_async_command(base_name: &str) -> Command {
     let path_env = augmented_path();
-    let mut cmd = if let Some(resolved) = resolve_binary_path(base_name) {
-        crate::process_util::hidden_tokio_command(resolved)
-    } else {
-        crate::process_util::hidden_tokio_command(base_name)
-    };
+    let executable = resolve_binary_path(base_name).unwrap_or_else(|| {
+        if media_binary_requires_bundle(base_name) {
+            missing_bundled_binary_path(base_name)
+        } else {
+            PathBuf::from(base_name)
+        }
+    });
+    let mut cmd = crate::process_util::hidden_tokio_command(executable);
     cmd.env("PATH", path_env);
     cmd
 }
@@ -159,11 +165,27 @@ pub fn create_async_command(base_name: &str) -> Command {
 /// The command is configured with `CREATE_NO_WINDOW` on Windows and default null stdin.
 pub fn create_std_command(base_name: &str) -> std::process::Command {
     let path_env = augmented_path();
-    let mut cmd = if let Some(resolved) = resolve_binary_path(base_name) {
-        crate::process_util::hidden_command(resolved)
-    } else {
-        crate::process_util::hidden_command(base_name)
-    };
+    let executable = resolve_binary_path(base_name).unwrap_or_else(|| {
+        if media_binary_requires_bundle(base_name) {
+            missing_bundled_binary_path(base_name)
+        } else {
+            PathBuf::from(base_name)
+        }
+    });
+    let mut cmd = crate::process_util::hidden_command(executable);
     cmd.env("PATH", path_env);
     cmd
+}
+
+pub(super) fn media_binary_requires_bundle(base_name: &str) -> bool {
+    !cfg!(debug_assertions) && matches!(base_name.trim_end_matches(".exe"), "ffmpeg" | "ffprobe")
+}
+
+pub(super) fn missing_bundled_binary_path(base_name: &str) -> PathBuf {
+    let name = base_name.trim_end_matches(".exe");
+    if cfg!(target_os = "windows") {
+        PathBuf::from(format!(r"C:\__clypra_missing_bundled_media__\{name}.exe"))
+    } else {
+        PathBuf::from(format!("/__clypra_missing_bundled_media__/{name}"))
+    }
 }

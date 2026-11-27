@@ -2,7 +2,8 @@
 mod tests {
     use super::super::executable_check::is_real_executable;
     use super::super::resolver::{
-        candidate_binary_names, create_async_command, create_std_command, resolve_binary_path,
+        candidate_binary_names, create_async_command, create_std_command,
+        media_binary_requires_bundle, missing_bundled_binary_path, resolve_binary_path,
     };
     use super::super::target::{augmented_path, TARGET_TRIPLE};
     use std::path::Path;
@@ -196,5 +197,24 @@ mod tests {
         let result = resolve_binary_path("non_existent_media_tool_12345");
         std::env::remove_var("CLYPRA_REQUIRE_BUNDLED_MEDIA");
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn release_media_commands_have_no_system_path_fallback() {
+        assert_eq!(
+            media_binary_requires_bundle("ffmpeg"),
+            !cfg!(debug_assertions)
+        );
+        assert_eq!(
+            media_binary_requires_bundle("ffprobe.exe"),
+            !cfg!(debug_assertions)
+        );
+        assert!(!media_binary_requires_bundle("mocktool"));
+
+        let missing = missing_bundled_binary_path("ffmpeg");
+        assert!(missing.is_absolute());
+        assert!(missing
+            .to_string_lossy()
+            .contains("__clypra_missing_bundled_media__"));
     }
 }

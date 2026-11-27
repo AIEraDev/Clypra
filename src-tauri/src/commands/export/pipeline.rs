@@ -1,9 +1,7 @@
 use super::types::ExportConfig;
 
-/// Build an augmented PATH string that includes common Homebrew/system binary
-/// locations. Tauri apps on macOS launch with a stripped environment, so
-/// `ffmpeg` and `ffprobe` (typically in /opt/homebrew/bin or /usr/local/bin)
-/// may not be found with the default PATH.
+/// Build the development PATH used by the binary resolver. Packaged builds
+/// invoke the verified FFmpeg sidecars directly and do not depend on this PATH.
 pub fn augmented_path() -> String {
     crate::commands::binary_resolver::augmented_path()
 }
