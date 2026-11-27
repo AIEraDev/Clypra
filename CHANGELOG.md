@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 
 ## [Unreleased]
 
+## [1.6.8] - 2026-11-27
+
+### Windows DXGI Scoped Latch (Opt-In)
+
+- Added the W1-A scoped DXGI latch behind `CLYPRA_DXGI_SCOPED_LATCH=1`.
+- Added stream-class latch telemetry, breaker and re-probe evidence, and the
+  locked volunteer comparison protocol for real Windows validation.
+- Kept the default-off legacy behavior unchanged; frame leases, pool sizing,
+  LUID comparison, and cross-API ordering remain out of scope.
+
 ## [1.6.7] - 2026-11-20
 
 ### Native Playback, Caching & Production Telemetry
