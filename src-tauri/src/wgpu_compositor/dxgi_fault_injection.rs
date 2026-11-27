@@ -6,6 +6,7 @@
 use super::dxgi_counters::{DxgiCounters, KeyedMutexObservation, DXGI_COUNTERS};
 use super::dxgi_hazards::{hash_texture_identity, record_lookahead_depth, register_surface};
 use super::render_path::DxgiFailureReason;
+use super::scoped_dxgi_latch::{ScopedDxgiFailureReason, StreamClass};
 
 const SYNTHETIC_TEXTURE_IDENTITY: usize = 0x51_4E_54_48;
 
@@ -39,6 +40,16 @@ pub fn record_synthetic_attempts(counters: &DxgiCounters) {
 /// behavior is changed and no raw identity is retained by the detector.
 pub fn inject_synthetic_dxgi_observations() {
     record_synthetic_attempts(&DXGI_COUNTERS);
+
+    // When the scoped-latch experiment is armed, include one representative
+    // stream-class event in the synthetic payload.  The debug command still
+    // sets the legacy latch separately so macOS can expose the payload through
+    // the same endpoint; flag-off behavior remains legacy-only.
+    let p010_class = StreamClass::from_stream_metadata("hevc", "main 10", 10, "p010", 3_840, 2_160);
+    let _ = crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+        &p010_class,
+        ScopedDxgiFailureReason::FormatUnsupportedP010,
+    );
 
     let identity = hash_texture_identity(SYNTHETIC_TEXTURE_IDENTITY);
     let first = register_surface(identity, 1);
