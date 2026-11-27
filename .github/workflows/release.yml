@@ -39,6 +39,12 @@ jobs:
             vcpkg_triplet: ""
             args: ""
 
+          # Linux ARM64 (.deb, .AppImage, .tar.gz)
+          - platform: "ubuntu-24.04-arm"
+            target: "aarch64-unknown-linux-gnu"
+            vcpkg_triplet: ""
+            args: "--target aarch64-unknown-linux-gnu"
+
     runs-on: ${{ matrix.platform }}
     steps:
       - name: Checkout repository
@@ -303,7 +309,7 @@ jobs:
         with:
           tagName: v__VERSION__
           releaseName: "Clypra v__VERSION__"
-          releaseBody: "Automated verified release bundle — macOS (arm64, x64), Windows (x64), Linux (x64). Linux ARM64 remains experimental and is not included in required public releases."
+          releaseBody: "Automated multi-platform release bundle — macOS (arm64, x64), Windows (x64, arm64), Linux (x64, arm64)."
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}
