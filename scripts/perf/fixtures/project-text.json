@@ -29,29 +29,30 @@
       "height": 50
     }
   ],
-  "clips": [],
-  "text_effects": [
+  "clips": [
     {
-      "id": "text-fx-1",
+      "id": "clip-text-1",
+      "kind": "text",
       "trackId": "track-t1",
-      "text": "Performance Benchmark Text",
+      "mediaId": "",
+      "name": "Plain Text Benchmark",
       "startTime": 0,
       "duration": 30,
-      "style": {
-        "fontSize": 48,
-        "fontFamily": "sans-serif",
-        "color": "#FFFFFF",
-        "textAlign": "center"
-      },
-      "transform": {
-        "position": {
-          "x": 960,
-          "y": 540
-        },
-        "scale": 1,
-        "rotation": 0
-      }
+      "trimIn": 0,
+      "trimOut": 30,
+      "x": 460,
+      "y": 450,
+      "width": 1000,
+      "height": 180,
+      "opacity": 1,
+      "rotation": 0,
+      "text": "Performance Benchmark Text",
+      "fontSize": 64,
+      "fontFamily": "Inter",
+      "color": "#FFFFFF",
+      "textAlign": "center"
     }
   ],
+  "text_effects": [],
   "text_templates": []
 }

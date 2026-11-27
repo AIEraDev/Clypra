@@ -21,7 +21,7 @@
     {
       "id": "asset-image-1",
       "name": "image_corner_markers_1080p.png",
-      "path": "tests/fixtures/perf/image_corner_markers_1080p.png",
+      "path": "/Users/AIEraDev/Documents/clypra-family/clypra/tests/fixtures/perf/image_corner_markers_1080p.png",
       "type": "image",
       "duration": 30,
       "width": 1920,

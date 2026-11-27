@@ -475,10 +475,30 @@ impl EngineTelemetryCollector {
         }
     }
 
+    pub fn begin_metal_decode_attempt_tagged(&self, _caller: &'static str) -> MetalDecodeAttempt<'_> {
+        self.begin_metal_decode_attempt()
+    }
+
     /// Marks the beginning of the final session flush. Decode guards dropped
     /// after this point are classified as shutdown in-flight work.
     pub fn mark_session_closing(&self) {
         self.session_closing.store(true, Ordering::Release);
+    }
+
+    /// Returns true if the telemetry session is actively shutting down.
+    pub fn is_session_closing(&self) -> bool {
+        self.session_closing.load(Ordering::Acquire)
+    }
+
+    /// Number of active decode attempts that have not yet reached a terminal outcome.
+    pub fn in_flight_decode_count(&self) -> u64 {
+        let transfers = self.transfers.read();
+        let accounted = transfers
+            .metal_decode_successes
+            .saturating_add(transfers.metal_decode_failures)
+            .saturating_add(transfers.metal_decode_cancelled)
+            .saturating_add(transfers.metal_decode_unrecorded);
+        transfers.metal_decode_attempts.saturating_sub(accounted)
     }
 
     /// Records a hardware-decoded frame that reached a non-zero-copy path
@@ -876,6 +896,15 @@ impl EngineTelemetryCollector {
         let mut transfers = self.transfers.read().clone();
         transfers.hwframe_transfer_calls = self.hwframe_transfer_calls.load(Ordering::Relaxed);
         transfers.hwframe_transfer_bytes = self.hwframe_transfer_bytes.load(Ordering::Relaxed);
+        if self.session_closing.load(Ordering::Acquire) {
+            let terminal = transfers
+                .metal_decode_successes
+                .saturating_add(transfers.metal_decode_failures)
+                .saturating_add(transfers.metal_decode_cancelled)
+                .saturating_add(transfers.metal_decode_unrecorded);
+            transfers.metal_decode_in_flight_at_close =
+                transfers.metal_decode_attempts.saturating_sub(terminal);
+        }
         let qos = self.qos.read().clone();
         let decode_by_workload = self
             .decode_by_workload

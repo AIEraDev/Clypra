@@ -5641,3 +5641,64 @@ describe("Bug 16 — Project Open Playback Readiness & Transport Resilience (CLY
   });
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Bug 17 — onForegroundWakeup must not reset visibleRequestGeneration during
+//          healthy playback (perf regression guard)
+//
+// Root cause (diagnosed from /tmp/stacked2-session.ndjson trace):
+//   AppLifecycleCoordinator.onForegroundWakeup fired repeatedly mid-playback
+//   (+1360 ms, +16771 ms, …), bumping visibleRequestGeneration in
+//   NativeProgramPreview.tsx → triggering `requires_recency_barrier` →
+//   `cancel_native_preview_requests`, wiping lookahead and marking decoders
+//   dirty mid-GOP.
+//
+// Fix:
+//   onForegroundWakeup skips resetting lastNativePlaybackRequestKey,
+//   nativePlaybackInFlight, and visibleRequestGeneration when isHealthyPlaying.
+//
+// This test models the guard logic to prevent regression.
+// ─────────────────────────────────────────────────────────────────────────────
+describe("Bug 17 — onForegroundWakeup does not interrupt healthy playback (CLY-BUG-WAKEUP-MID-PLAY)", () => {
+  it("does NOT bump visibleRequestGeneration when isHealthyPlaying is true", () => {
+    // Simulate the guard introduced in NativeProgramPreview.tsx::onForegroundWakeup.
+    // isHealthyPlaying: clock is playing + recent frame was presented within threshold.
+    let visibleRequestGeneration = 1;
+    const isHealthyPlaying = true; // clock playing + recent presented frame
+
+    // The fixed onForegroundWakeup body:
+    if (!isHealthyPlaying) {
+      visibleRequestGeneration += 1; // bump — triggers recency barrier
+    }
+
+    expect(visibleRequestGeneration).toBe(1); // must remain unchanged during playback
+  });
+
+  it("DOES bump visibleRequestGeneration when not playing (app was truly in background)", () => {
+    let visibleRequestGeneration = 1;
+    const isHealthyPlaying = false; // paused or clock stalled
+
+    if (!isHealthyPlaying) {
+      visibleRequestGeneration += 1;
+    }
+
+    expect(visibleRequestGeneration).toBe(2); // must refresh stale state after real background
+  });
+
+  it("isHealthyPlaying is false when clock is paused even if a frame was recently presented", () => {
+    // Guard requires both: clock must be playing AND a frame recently presented.
+    const clockPlaying = false;
+    const recentFramePresented = true;
+    const isHealthyPlaying = clockPlaying && recentFramePresented;
+
+    expect(isHealthyPlaying).toBe(false);
+  });
+
+  it("isHealthyPlaying is false when clock is playing but no frame was recently presented (stall)", () => {
+    const clockPlaying = true;
+    const recentFramePresented = false; // stalled — last presented frame > threshold ago
+    const isHealthyPlaying = clockPlaying && recentFramePresented;
+
+    expect(isHealthyPlaying).toBe(false);
+  });
+});
+

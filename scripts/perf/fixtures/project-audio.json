@@ -21,7 +21,7 @@
     {
       "id": "asset-audio-1",
       "name": "audio_beeps_48k_35s.m4a",
-      "path": "tests/fixtures/perf/audio_beeps_48k_35s.m4a",
+      "path": "/Users/AIEraDev/Documents/clypra-family/clypra/tests/fixtures/perf/audio_beeps_48k_35s.m4a",
       "type": "audio",
       "duration": 35,
       "width": 0,

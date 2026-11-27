@@ -9,14 +9,12 @@ fn lookahead_decision(
     current_frame: u64,
     end_frame: u64,
     same_generation: bool,
-    same_quality: bool,
     same_content: bool,
     project_revision_changed: bool,
 ) -> LookaheadWorkerAction {
     decide_lookahead_worker_action(LookaheadWorkerDecisionInput {
         active: true,
         same_generation,
-        same_quality,
         same_content,
         project_revision_changed,
         current_frame,
@@ -28,7 +26,7 @@ fn lookahead_decision(
 
 #[test]
 fn lookahead_scheduler_keeps_same_stream_alive_during_transient_starvation() {
-    let action = lookahead_decision(100, 100, true, true, true, false);
+    let action = lookahead_decision(100, 100, true, true, false);
 
     assert_eq!(
         action,
@@ -40,7 +38,7 @@ fn lookahead_scheduler_keeps_same_stream_alive_during_transient_starvation() {
 
 #[test]
 fn lookahead_scheduler_resyncs_only_after_hysteresis_qualified_lag() {
-    let action = lookahead_decision(104, 100, true, true, true, false);
+    let action = lookahead_decision(104, 100, true, true, false);
 
     assert_eq!(
         action,
@@ -55,7 +53,6 @@ fn lookahead_scheduler_defers_resync_until_worker_finishes() {
     let action = decide_lookahead_worker_action(LookaheadWorkerDecisionInput {
         active: true,
         same_generation: true,
-        same_quality: true,
         same_content: true,
         project_revision_changed: false,
         current_frame: 110,
@@ -77,7 +74,6 @@ fn lookahead_scheduler_starts_forward_resync_only_after_cooldown() {
     let input = |elapsed| LookaheadWorkerDecisionInput {
         active: false,
         same_generation: true,
-        same_quality: true,
         same_content: true,
         project_revision_changed: false,
         current_frame: 110,
@@ -144,7 +140,6 @@ fn simulate_playback_decode(
         let action = decide_lookahead_worker_action(LookaheadWorkerDecisionInput {
             active: !frame_completed,
             same_generation: true,
-            same_quality: true,
             same_content: true,
             project_revision_changed: false,
             current_frame,
@@ -193,17 +188,17 @@ fn decode_jitter_around_the_budget_does_not_resync() {
 #[test]
 fn lookahead_scheduler_preserves_distinct_invalidation_reasons() {
     assert_eq!(
-        lookahead_decision(10, 10, false, true, true, false),
+        lookahead_decision(10, 10, false, true, false),
         LookaheadWorkerAction::Abort { reason: "generation" }
     );
     assert_eq!(
-        lookahead_decision(10, 10, true, true, false, false),
+        lookahead_decision(10, 10, true, false, false),
         LookaheadWorkerAction::Abort {
             reason: "clip_boundary"
         }
     );
     assert_eq!(
-        lookahead_decision(10, 10, true, true, true, true),
+        lookahead_decision(10, 10, true, true, true),
         LookaheadWorkerAction::Abort {
             reason: "project_edit"
         }
@@ -1185,4 +1180,46 @@ fn test_cly_bug_010_video_crop_margins_preserved_in_request_conversion() {
             bottom: 0.25,
         })
     );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// catchup_target_frame_for_lag — unit tests
+//
+// Regression guard for the fix that makes the lookahead scheduler lead the
+// live frame by +2 (small lag) or +4 (large lag) frames so that decoded
+// frames are not discarded by `discard_before` before they can be presented.
+// ─────────────────────────────────────────────────────────────────────────────
+#[test]
+fn test_catchup_target_frame_no_lag() {
+    // target equals live — no lag, should still lead by +2
+    let result = super::catchup_target_frame_for_lag(10, 10);
+    assert_eq!(result, 12, "No lag: expected lead of +2, got {result}");
+}
+
+#[test]
+fn test_catchup_target_frame_small_lag() {
+    // target is 3 frames behind live (< 4) — lead by +2
+    let result = super::catchup_target_frame_for_lag(7, 10);
+    assert_eq!(result, 12, "Small lag (3): expected live+2=12, got {result}");
+}
+
+#[test]
+fn test_catchup_target_frame_large_lag() {
+    // target is 4 frames behind live (>= 4) — lead by +4
+    let result = super::catchup_target_frame_for_lag(6, 10);
+    assert_eq!(result, 14, "Large lag (4): expected live+4=14, got {result}");
+}
+
+#[test]
+fn test_catchup_target_frame_very_large_lag() {
+    // target is 10 frames behind live — still lead by +4 (capped)
+    let result = super::catchup_target_frame_for_lag(0, 10);
+    assert_eq!(result, 14, "Very large lag (10): expected live+4=14, got {result}");
+}
+
+#[test]
+fn test_catchup_target_frame_no_overflow_at_zero() {
+    // Both are zero: saturating_sub(0,0)=0 → lead +2
+    let result = super::catchup_target_frame_for_lag(0, 0);
+    assert_eq!(result, 2, "Zero/zero: expected 0+2=2, got {result}");
 }
