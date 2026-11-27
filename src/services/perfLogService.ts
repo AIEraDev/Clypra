@@ -55,6 +55,10 @@ import {
   type PerfSessionHeader,
   type PreviewContextRecord,
 } from "./perfSchema";
+import {
+  resolveTelemetryUpload,
+  type TelemetryUploadResolution,
+} from "./telemetryConsent";
 
 // ── Tauri runtime guard ───────────────────────────────────────────────────────
 // Evaluated lazily at call time, not at module-load time. The module-level
@@ -73,6 +77,8 @@ const FLUSH_INTERVAL_MS = import.meta.env.DEV ? 5_000 : 30_000;
 const SYNC_POLL_INTERVAL_MS = FLUSH_INTERVAL_MS;
 /** Maximum entries held in-memory before a forced flush. Prevents unbounded growth. */
 const MAX_QUEUE_SIZE = 200;
+const TELEMETRY_UPLOAD_KEY = "clypra.telemetryUploadEnabled";
+const TELEMETRY_ONBOARDING_KEY = "clypra.telemetryOnboardingShown";
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -245,10 +251,12 @@ export class PerfLogService {
 
   private async openSessionImpl(sessionId: string): Promise<void> {
     try {
+      const uploadResolution = this.resolveTelemetryUpload();
       const info = await tauriInvoke<PerfLogSessionInfo>(
         "open_perf_log_session",
         {
           sessionId,
+          consentState: uploadResolution.consentState ?? null,
         },
       );
       this.sessionId = info.sessionId;
@@ -322,7 +330,7 @@ export class PerfLogService {
    */
   private async retryPendingUploads(): Promise<void> {
     if (!isTauriRuntime()) return;
-    if (!this.isTelemetryUploadEnabled()) return;
+    if (!this.resolveTelemetryUpload().enabled) return;
     try {
       const uploadedCount = await tauriInvoke<number>(
         "upload_pending_perf_logs",
@@ -818,7 +826,7 @@ export class PerfLogService {
     this.queue = [];
 
     // Upload only if opt-in is enabled and not suppressed by env var.
-    if (closedPath && this.isTelemetryUploadEnabled()) {
+    if (closedPath && this.resolveTelemetryUpload().enabled) {
       await this.uploadSessionFile(closedPath);
     }
   }
@@ -1456,18 +1464,7 @@ export class PerfLogService {
     return getAppVersionSync() ?? "unknown";
   }
 
-  /**
-   * Returns true only after the user has explicitly opted into telemetry upload.
-   * Respects CLYPRA_DISABLE_TELEMETRY_UPLOAD env var for CI and contributors.
-   * Default is OFF — uploads require an explicit user opt-in.
-   */
-  private isTelemetryUploadEnabled(): boolean {
-    // Never upload from a dev build — debug sessions report synthetic latch
-    // state (Some(false) on all OS) that would pollute the production fleet data.
-    if (import.meta.env.DEV) {
-      return false;
-    }
-    // Env var takes precedence (contributors, CI)
+  private resolveTelemetryUpload(): TelemetryUploadResolution {
     const g =
       typeof globalThis !== "undefined"
         ? (globalThis as Record<string, unknown>)
@@ -1475,38 +1472,56 @@ export class PerfLogService {
     const proc = g.process as
       | { env?: Record<string, string | undefined> }
       | undefined;
-    if (proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD) {
-      return false;
-    }
-    if (
-      typeof import.meta !== "undefined" &&
-      import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1"
-    ) {
-      return false;
-    }
-    // Default OFF — absence of the key means the user has not opted in.
+    const envKill = Boolean(
+      proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD ||
+        import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1",
+    );
+
     try {
-      const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
-      return stored === "true";
+      return resolveTelemetryUpload({
+        isDev: import.meta.env.DEV,
+        envKill,
+        stored: localStorage.getItem(TELEMETRY_UPLOAD_KEY),
+        noticeShown: localStorage.getItem(TELEMETRY_ONBOARDING_KEY) === "true",
+      });
     } catch {
-      return false;
+      return resolveTelemetryUpload({
+        isDev: import.meta.env.DEV,
+        envKill,
+        stored: undefined,
+        noticeShown: false,
+      });
     }
   }
 
   /** Enable or disable telemetry upload. Persists across sessions. Pass `false` to explicitly opt out. */
   static setTelemetryUploadEnabled(enabled: boolean): void {
     try {
-      localStorage.setItem("clypra.telemetryUploadEnabled", String(enabled));
+      localStorage.setItem(TELEMETRY_UPLOAD_KEY, String(enabled));
     } catch {
       // Private browsing mode — ignore
     }
   }
 
-  /** Returns the current opt-in state. Defaults to false when the key is absent. */
+  /** Returns the current upload state using the same policy as the upload gates. */
   static isTelemetryUploadEnabledStatic(): boolean {
     try {
-      const stored = localStorage.getItem("clypra.telemetryUploadEnabled");
-      return stored === "true";
+      const g =
+        typeof globalThis !== "undefined"
+          ? (globalThis as Record<string, unknown>)
+          : {};
+      const proc = g.process as
+        | { env?: Record<string, string | undefined> }
+        | undefined;
+      return resolveTelemetryUpload({
+        isDev: import.meta.env.DEV,
+        envKill: Boolean(
+          proc?.env?.CLYPRA_DISABLE_TELEMETRY_UPLOAD ||
+            import.meta.env?.VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD === "1",
+        ),
+        stored: localStorage.getItem(TELEMETRY_UPLOAD_KEY),
+        noticeShown: localStorage.getItem(TELEMETRY_ONBOARDING_KEY) === "true",
+      }).enabled;
     } catch {
       return false;
     }

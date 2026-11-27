@@ -90,11 +90,14 @@ describe("PerfLogService Phase 5 Session Telemetry Integration", () => {
 
 describe("PerfLogService Telemetry Upload Default Behavior", () => {
   const TELEMETRY_KEY = "clypra.telemetryUploadEnabled";
+  const TELEMETRY_NOTICE_KEY = "clypra.telemetryOnboardingShown";
   let originalGetItem: typeof Storage.prototype.getItem;
   let originalSetItem: typeof Storage.prototype.setItem;
   let store: Record<string, string>;
 
   beforeEach(() => {
+    vi.stubEnv("DEV", false);
+    vi.stubEnv("VITE_CLYPRA_DISABLE_TELEMETRY_UPLOAD", "");
     // Mock localStorage with a clean store for each test
     store = {};
     originalGetItem = Storage.prototype.getItem;
@@ -109,14 +112,17 @@ describe("PerfLogService Telemetry Upload Default Behavior", () => {
   afterEach(() => {
     Storage.prototype.getItem = originalGetItem;
     Storage.prototype.setItem = originalSetItem;
+    vi.unstubAllEnvs();
   });
 
-  it("defaults to opt-out (false) when localStorage key is absent", () => {
-    // Key is absent; a new user must explicitly opt in.
+  it("blocks a new install until the disclosure has been shown", () => {
     expect(localStorage.getItem(TELEMETRY_KEY)).toBeNull();
-
-    // Static accessor (primary API)
     expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
+  });
+
+  it("enables a new install after the disclosure has been shown", () => {
+    store[TELEMETRY_NOTICE_KEY] = "true";
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(true);
   });
 
   it("respects explicit opt-out (false)", () => {
@@ -136,7 +142,6 @@ describe("PerfLogService Telemetry Upload Default Behavior", () => {
   });
 
   it("allows user to toggle from default opt-out to opt-in", () => {
-    // Start with default (key absent)
     expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
 
     // User opts out
@@ -155,6 +160,13 @@ describe("PerfLogService Telemetry Upload Default Behavior", () => {
     // Read multiple times
     expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
     expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
+    expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
+  });
+
+  it("fails closed when storage throws", () => {
+    Storage.prototype.getItem = vi.fn(() => {
+      throw new Error("storage unavailable");
+    });
     expect(PerfLogService.isTelemetryUploadEnabledStatic()).toBe(false);
   });
 });
