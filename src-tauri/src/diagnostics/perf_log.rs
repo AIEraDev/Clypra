@@ -1068,10 +1068,20 @@ pub fn delete_pending_perf_logs(app: tauri::AppHandle) -> Result<usize, String> 
 fn sanitize_telemetry_json(value: &mut serde_json::Value) {
     static PROJECT_ID_REGEX: once_cell::sync::Lazy<regex::Regex> =
         once_cell::sync::Lazy::new(|| regex::Regex::new(r"project-[a-zA-Z0-9_-]+").unwrap());
+    static LOCAL_PATH_REGEX: once_cell::sync::Lazy<regex::Regex> =
+        once_cell::sync::Lazy::new(|| {
+            regex::Regex::new(
+                r#"(?i)(?:file:///|[A-Z]:[\\/]|\\\\(?:Users|Documents)|/(?:Users|home|private/var|var/folders)/)[^\"]*"#,
+            )
+            .expect("local telemetry path regex must compile")
+        });
 
     match value {
-        serde_json::Value::String(s) if s.contains("project-") => {
-            *s = PROJECT_ID_REGEX.replace_all(s, "project-anon").to_string();
+        serde_json::Value::String(s) => {
+            if s.contains("project-") {
+                *s = PROJECT_ID_REGEX.replace_all(s, "project-anon").to_string();
+            }
+            *s = LOCAL_PATH_REGEX.replace_all(s, "[redacted-path]").to_string();
         }
         serde_json::Value::Array(arr) => {
             for v in arr {
@@ -1180,6 +1190,26 @@ mod tests {
             "frontend:webview:bridge:project-anon:1"
         );
         assert_eq!(sample["nested"]["nonProject"], "some-other-string");
+    }
+
+    #[test]
+    fn test_sanitize_telemetry_json_redacts_local_paths_inside_nested_strings() {
+        let mut sample = serde_json::json!({
+            "payload": {
+                "videoPath": "/Users/example/clip.mov",
+                "serializedProject": "{\"videoPath\":\"/Users/example/clip.mov\"}",
+                "fileUrl": "file:///Users/example/clip.mov",
+                "safe": "native-video-path"
+            }
+        });
+
+        sanitize_telemetry_json(&mut sample);
+
+        let encoded = serde_json::to_string(&sample).expect("sanitized telemetry must serialize");
+        assert!(!encoded.contains("/Users/example"));
+        assert!(!encoded.contains("file:///Users/example"));
+        assert!(encoded.contains("[redacted-path]"));
+        assert_eq!(sample["payload"]["safe"], "native-video-path");
     }
 
     #[test]

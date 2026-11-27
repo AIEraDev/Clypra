@@ -169,6 +169,31 @@ function nativeSyncFingerprint(snapshot: unknown): string {
   return JSON.stringify(stable);
 }
 
+const LOCAL_PATH_PATTERN =
+  /(?:file:\/\/\/|[A-Z]:[\\/]|\\\\(?:Users|Documents)|\/(?:Users|home|private\/var|var\/folders)\/)[^"']*/gi;
+
+/**
+ * Redacts local filesystem paths before the browser fallback sends a session.
+ * The native uploader applies the same boundary because the API rejects paths.
+ */
+export function sanitizeTelemetryValue(value: unknown): unknown {
+  if (typeof value === "string") {
+    return value.replace(LOCAL_PATH_PATTERN, "[redacted-path]");
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => sanitizeTelemetryValue(item));
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        sanitizeTelemetryValue(item),
+      ]),
+    );
+  }
+  return value;
+}
+
 // ── Internal helpers ─────────────────────────────────────────────────────────
 
 /** Lazy dynamic import of the Tauri invoke function so this module loads in non-Tauri environments. */
@@ -900,7 +925,7 @@ export class PerfLogService {
         const trimmed = line.trim();
         if (!trimmed) continue;
         try {
-          entries.push(JSON.parse(trimmed));
+          entries.push(sanitizeTelemetryValue(JSON.parse(trimmed)));
         } catch {
           // ignore corrupted/incomplete line
         }

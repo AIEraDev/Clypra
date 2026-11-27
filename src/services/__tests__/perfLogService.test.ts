@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { perfLogService, PerfLogService } from "../perfLogService";
+import {
+  perfLogService,
+  PerfLogService,
+  sanitizeTelemetryValue,
+} from "../perfLogService";
 
 describe("PerfLogService Phase 5 Session Telemetry Integration", () => {
   beforeEach(() => {
@@ -85,6 +89,21 @@ describe("PerfLogService Phase 5 Session Telemetry Integration", () => {
         },
       });
     }).not.toThrow();
+  });
+
+  it("redacts local paths in nested telemetry before browser fallback upload", () => {
+    const sanitized = sanitizeTelemetryValue({
+      videoPath: "/Users/example/clip.mov",
+      serialized: '{"videoPath":"/Users/example/clip.mov"}',
+      fileUrl: "file:///Users/example/clip.mov",
+      safe: "native-video-path",
+    }) as Record<string, unknown>;
+
+    const encoded = JSON.stringify(sanitized);
+    expect(encoded).not.toContain("/Users/example");
+    expect(encoded).not.toContain("file:///Users/example");
+    expect(encoded).toContain("[redacted-path]");
+    expect(sanitized.safe).toBe("native-video-path");
   });
 });
 
