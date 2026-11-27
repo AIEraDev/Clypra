@@ -90,10 +90,11 @@ memmap2 = "0.9"
 lz4_flex = "0.11"
 
 # Native FFmpeg bindings for fast thumbnail extraction
-# ffmpeg-next "9" / ffmpeg-sys-next "9" target FFmpeg 8.x libraries
+# ffmpeg-next "9.1" / ffmpeg-sys-next "9.1" target current FFmpeg 8.x libraries,
+# including the CUDA frame-context types shipped by the Windows vcpkg package.
 # Statically linked to eliminate external runtime dynamic library dependencies
-ffmpeg-next = { version = "9", features = ["static"] }
-ffmpeg-sys-next = { version = "9", features = ["static"] }
+ffmpeg-next = { version = "9.1", features = ["static"] }
+ffmpeg-sys-next = { version = "9.1", features = ["static"] }
 
 # Image encoding for native decoder frame output
 image = { version = "0.25", default-features = false, features = ["webp", "png", "jpeg"] }

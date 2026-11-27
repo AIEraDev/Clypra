@@ -139,10 +139,13 @@ fn ffmpeg_incident_message(kind: DecodeIncidentKind) -> &'static str {
     }
 }
 
-#[cfg(target_os = "linux")]
+// On x86_64 Linux, C's va_list parameter decays to a pointer to the generated
+// `__va_list_tag` struct. Other supported targets expose the ABI-specific
+// `va_list` binding directly (aarch64 Linux uses an opaque array value).
+#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
 type FfmpegVaList = *mut ffmpeg::ffi::__va_list_tag;
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
 type FfmpegVaList = ffmpeg::ffi::va_list;
 
 unsafe extern "C" fn ffmpeg_log_callback(
@@ -155,7 +158,7 @@ unsafe extern "C" fn ffmpeg_log_callback(
         return;
     }
 
-    let mut line = [0i8; 2048];
+    let mut line = [0 as c_char; 2048];
     let mut print_prefix = 1;
     let formatted = ffmpeg::ffi::av_log_format_line2(
         avcl,
