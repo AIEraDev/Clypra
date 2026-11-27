@@ -207,6 +207,26 @@ async function removeOfflineCrash(id: string): Promise<void> {
   }
 }
 
+async function clearOfflineCrashes(): Promise<void> {
+  try {
+    const db = await openTelemetryDb();
+    const tx = db.transaction(STORE_NAME, "readwrite");
+    tx.objectStore(STORE_NAME).clear();
+    await new Promise<void>((res, rej) => {
+      tx.oncomplete = () => {
+        db.close();
+        res();
+      };
+      tx.onerror = () => {
+        db.close();
+        rej(tx.error);
+      };
+    });
+  } catch {
+    // Missing IndexedDB is expected in web previews and test environments.
+  }
+}
+
 // ─── Crash Reporting Engine ───────────────────────────────────────────────────
 
 const APP_START_TIME = Date.now();
@@ -225,6 +245,11 @@ export class CrashReportingService {
 
   public setTelemetryEnabled(enabled: boolean): void {
     this._telemetryEnabled = enabled;
+  }
+
+  /** Removes crash reports that have not yet left the device. */
+  public async clearOfflineQueue(): Promise<void> {
+    await clearOfflineCrashes();
   }
 
   public isTelemetryEnabled(): boolean {

@@ -1490,6 +1490,19 @@ export class PerfLogService {
   /** Disables future uploads and removes completed local sessions awaiting upload. */
   static async disableTelemetryUpload(): Promise<void> {
     PerfLogService.setTelemetryUploadEnabled(false);
+    try {
+      localStorage.removeItem("clypra:telemetry:offline_queue");
+    } catch {
+      // Private browsing mode — ignore
+    }
+
+    try {
+      const { crashReporter } = await import("@/core/telemetry");
+      await crashReporter.clearOfflineQueue();
+    } catch (err) {
+      console.warn("[PerfLogService] Failed to clear queued crash reports:", err);
+    }
+
     if (!isTauriRuntime()) return;
     try {
       await tauriInvoke<number>("delete_pending_perf_logs");
