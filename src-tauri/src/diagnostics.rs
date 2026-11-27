@@ -3,9 +3,9 @@ pub mod perf_log;
 
 pub use crash_handler::NativeCrashReport;
 pub use perf_log::{
-    append_perf_log_entries, close_perf_log_session, list_perf_log_files, mark_perf_log_uploaded,
-    open_perf_log_session, purge_perf_logs, read_perf_log_file, upload_pending_perf_logs,
-    upload_perf_log_session,
+    append_perf_log_entries, close_perf_log_session, delete_pending_perf_logs, list_perf_log_files,
+    mark_perf_log_uploaded, open_perf_log_session, purge_perf_logs, read_perf_log_file,
+    upload_pending_perf_logs, upload_perf_log_session,
 };
 
 use serde::Serialize;

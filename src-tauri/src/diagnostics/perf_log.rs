@@ -1029,6 +1029,37 @@ pub fn purge_perf_logs(app: tauri::AppHandle, max_age_days: Option<u32>) -> Resu
     Ok(deleted)
 }
 
+/// Deletes completed perf-log files that have not been uploaded. Open sessions
+/// are skipped because their writers are still active.
+#[tauri::command]
+pub fn delete_pending_perf_logs(app: tauri::AppHandle) -> Result<usize, String> {
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("Failed to resolve perf-log directory: {e}"))?;
+    let log_dir = get_perf_log_dir(&app_data_dir);
+    if !log_dir.exists() {
+        return Ok(0);
+    }
+
+    let open_paths: std::collections::HashSet<PathBuf> = SESSIONS
+        .iter()
+        .map(|session| session.value().file_path.clone())
+        .collect();
+    let mut deleted = 0usize;
+    for entry in fs::read_dir(&log_dir).map_err(|e| format!("Failed to read perf_logs dir: {e}"))? {
+        let path = entry.map_err(|e| format!("Directory entry error: {e}"))?.path();
+        let ext = path.extension().and_then(|value| value.to_str());
+        if !matches!(ext, Some("ndjson") | Some("uploaded")) || open_paths.contains(&path) {
+            continue;
+        }
+        if fs::remove_file(path).is_ok() {
+            deleted += 1;
+        }
+    }
+    Ok(deleted)
+}
+
 /// Recursively traverses a JSON value and redacts any project identifiers (e.g. `project-1790732159574-...`)
 /// to protect user privacy before telemetry uploads.
 fn sanitize_telemetry_json(value: &mut serde_json::Value) {

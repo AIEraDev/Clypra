@@ -1503,6 +1503,17 @@ export class PerfLogService {
     }
   }
 
+  /** Disables future uploads and removes completed local sessions awaiting upload. */
+  static async disableTelemetryUpload(): Promise<void> {
+    PerfLogService.setTelemetryUploadEnabled(false);
+    if (!isTauriRuntime()) return;
+    try {
+      await tauriInvoke<number>("delete_pending_perf_logs");
+    } catch (err) {
+      console.warn("[PerfLogService] Failed to delete pending telemetry files:", err);
+    }
+  }
+
   /** Returns the current upload state using the same policy as the upload gates. */
   static isTelemetryUploadEnabledStatic(): boolean {
     try {
