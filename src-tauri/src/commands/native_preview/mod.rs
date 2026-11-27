@@ -351,6 +351,28 @@ pub use font_registry::*;
 pub use layer_models::*;
 pub use performance_report::*;
 pub use presentation_queue::*;
+
+#[cfg(target_os = "windows")]
+fn scoped_dxgi_class_for_decode(
+    timings: &NativeDecodeTimings,
+    width: u32,
+    height: u32,
+) -> crate::wgpu_compositor::StreamClass {
+    crate::wgpu_compositor::StreamClass::from_stream_metadata(
+        timings
+            .codec_name
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        timings
+            .codec_profile
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        timings.source_bits_per_raw_sample.unwrap_or(8),
+        timings.pixel_format.as_deref().unwrap_or(""),
+        timings.source_width.unwrap_or(width),
+        timings.source_height.unwrap_or(height),
+    )
+}
 pub use push_runtime::*;
 pub use raster_assets::*;
 
@@ -1476,7 +1498,10 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
         // shared decoder cursor and turns a forward stream into GOP seeks.
         // Attempt it only when the active wgpu adapter can actually consume
         // the imported NV12 texture.
-        session.dxgi_state.is_usable()
+        (crate::runtime_profile::resolve_runtime_flag_profile()
+            .dxgi_scoped_latch
+            .enabled
+            || session.dxgi_state.is_usable())
             && session.gpu.capabilities.zero_copy_available()
             && session.gpu.capabilities.wgpu_nv12
     };
@@ -1518,6 +1543,19 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                 }
             };
             let mut guard = decoder.lock().await;
+            let stream_metadata = guard.metadata();
+            let stream_class = crate::wgpu_compositor::StreamClass::from_stream_metadata(
+                stream_metadata.codec_name.clone(),
+                stream_metadata.codec_profile.clone(),
+                stream_metadata.bits_per_raw_sample,
+                &stream_metadata.pixel_format,
+                stream_metadata.width,
+                stream_metadata.height,
+            );
+            if !crate::wgpu_compositor::adapter_selector::is_dxgi_enabled_for(&stream_class) {
+                all_succeeded = false;
+                break;
+            }
             let wait_us = lock_started.elapsed().as_micros() as u64;
             total_wait_us = total_wait_us.saturating_add(wait_us);
 
@@ -1536,6 +1574,9 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                 Ok(Some(shared)) => {
                     let dec_us = decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
                     max_dec_us = max_dec_us.max(dec_us);
+                    crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_probe_success(
+                        &stream_class,
+                    );
                     let stream_metadata = guard.metadata();
                     let color = merge_color_metadata(frame_color, &stream_metadata.color);
                     let stream_key = if layer.layer_id.is_empty() {
@@ -1557,9 +1598,23 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                         stream_metadata.decode_adapter_vendor_id,
                         stream_metadata.decode_adapter_device_id,
                     );
-                    frames.push((shared, width, height, color));
+                    frames.push((shared, width, height, color, stream_class));
                 }
-                _ => {
+                Ok(None) => {
+                    crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                        &stream_class,
+                        crate::wgpu_compositor::ScopedDxgiFailureReason::NonD3d11Surface,
+                    );
+                    all_succeeded = false;
+                    break;
+                }
+                Err(error) => {
+                    if !error.contains("cancelled") {
+                        crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                            &stream_class,
+                            crate::wgpu_compositor::ScopedDxgiFailureReason::DecodeFailed,
+                        );
+                    }
                     all_succeeded = false;
                     break;
                 }
@@ -1738,9 +1793,16 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
 
     #[cfg(target_os = "windows")]
     let can_use_dxgi = session.gpu.capabilities.zero_copy_available()
-        && session.dxgi_state.is_usable()
+        && (crate::runtime_profile::resolve_runtime_flag_profile()
+            .dxgi_scoped_latch
+            .enabled
+            || session.dxgi_state.is_usable())
         && dxgi_decode_enabled()
-        && !dxgi_env_disabled;
+        && !dxgi_env_disabled
+        && (crate::runtime_profile::resolve_runtime_flag_profile()
+            .dxgi_scoped_latch
+            .enabled
+            || crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled());
 
     #[cfg(target_os = "windows")]
     if can_use_dxgi {
@@ -1751,7 +1813,9 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
             } else {
                 use crate::wgpu_compositor::dxgi_import;
                 let mut import_all_ok = true;
-                for (layer, (shared, width, height, color)) in request.layers.iter().zip(frames) {
+                for (layer, (shared, width, height, color, stream_class)) in
+                    request.layers.iter().zip(frames)
+                {
                     let layer_key = if !layer.layer_id.is_empty() {
                         &layer.layer_id
                     } else {
@@ -1773,6 +1837,9 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                                 layer_key, width, height, &imported, &params,
                             ) {
                                 Ok(texture) => {
+                                    crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_probe_success(
+                                        &stream_class,
+                                    );
                                     views.push(
                                         texture
                                             .create_view(&wgpu::TextureViewDescriptor::default()),
@@ -1783,12 +1850,24 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                                     match render_error {
                                         crate::wgpu_compositor::PreviewRenderError::UnsupportedFeature(_) => {
                                             session.mark_dxgi_disabled(crate::wgpu_compositor::DisableReason::UnsupportedFeature);
+                                            crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                                                &stream_class,
+                                                crate::wgpu_compositor::ScopedDxgiFailureReason::Nv12UnavailableAtConstruction,
+                                            );
                                         }
                                         crate::wgpu_compositor::PreviewRenderError::DimensionMismatch { .. } => {
                                             session.mark_dxgi_failed(crate::wgpu_compositor::DxgiFailureReason::DimensionMismatch);
+                                            crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                                                &stream_class,
+                                                crate::wgpu_compositor::ScopedDxgiFailureReason::ImportFailed,
+                                            );
                                         }
                                         _ => {
                                             session.mark_dxgi_failed(crate::wgpu_compositor::DxgiFailureReason::ImportFailed);
+                                            crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                                                &stream_class,
+                                                crate::wgpu_compositor::ScopedDxgiFailureReason::ImportFailed,
+                                            );
                                         }
                                     }
                                     import_all_ok = false;
@@ -1798,6 +1877,12 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                         }
                         Err(reason) => {
                             session.mark_dxgi_failed(reason);
+                            crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                                &stream_class,
+                                crate::wgpu_compositor::adapter_selector::scoped_reason_for_dxgi_failure(
+                                    reason,
+                                ),
+                            );
                             import_all_ok = false;
                             break;
                         }
@@ -2049,10 +2134,21 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
             }
             #[cfg(target_os = "windows")]
             if let DecodedFrame::Dxgi(ref shared_arc) = planes {
-                if session.gpu.capabilities.zero_copy_available()
-                    && session.dxgi_state.is_usable()
-                    && crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled()
-                {
+                let stream_class = scoped_dxgi_class_for_decode(
+                    &decode_telemetry,
+                    *width,
+                    *height,
+                );
+                let scoped_latch_enabled = crate::runtime_profile::resolve_runtime_flag_profile()
+                    .dxgi_scoped_latch
+                    .enabled;
+                let can_use_dxgi = if scoped_latch_enabled {
+                    crate::wgpu_compositor::adapter_selector::is_dxgi_enabled_for(&stream_class)
+                } else {
+                    session.dxgi_state.is_usable()
+                        && crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled()
+                };
+                if session.gpu.capabilities.zero_copy_available() && can_use_dxgi {
                     if let Some(duped_shared) = shared_arc.duplicate() {
                         if let Ok(imported) = crate::wgpu_compositor::dxgi_import::import_into_wgpu(
                             &session.gpu.device,
@@ -2062,6 +2158,9 @@ async fn render_native_video_project_frame_bytes_timed_with_session(
                                 layer_key, *width, *height, &imported, &params,
                             ) {
                                 session.mark_dxgi_supported();
+                                crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_probe_success(
+                                    &stream_class,
+                                );
                                 layer_texture = Some(texture);
                             }
                         }
@@ -2720,6 +2819,12 @@ async fn decode_native_video_layers_metal(
                 .as_ref()
                 .and_then(|metadata| metadata.average_frame_rate_milli()),
             codec_name: source.as_ref().map(|metadata| metadata.codec_name.clone()),
+            codec_profile: source
+                .as_ref()
+                .map(|metadata| metadata.codec_profile.clone()),
+            pixel_format: source
+                .as_ref()
+                .map(|metadata| metadata.pixel_format.clone()),
             hw_device_type: Some("videotoolbox".to_string()),
             ..NativeDecodeTimings::default()
         },
@@ -2882,6 +2987,8 @@ async fn decode_native_video_layers(
                 source_bits_per_raw_sample: Some(source.bits_per_raw_sample),
                 source_frame_rate_milli: source.average_frame_rate_milli(),
                 codec_name: Some(source.codec_name),
+                codec_profile: Some(source.codec_profile),
+                pixel_format: Some(source.pixel_format),
                 hardware_frames_downloaded: Some(hardware_frames_downloaded),
                 served_from: Some(actor_served_from),
                 hw_device_type,
@@ -4756,10 +4863,21 @@ pub(crate) async fn present_native_frame_internal(
 
             #[cfg(target_os = "windows")]
             if let DecodedFrame::Dxgi(ref shared_arc) = planes {
-                if session.gpu.capabilities.zero_copy_available()
-                    && session.dxgi_state.is_usable()
-                    && crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled()
-                {
+                let stream_class = scoped_dxgi_class_for_decode(
+                    &decode_timings,
+                    *width,
+                    *height,
+                );
+                let scoped_latch_enabled = crate::runtime_profile::resolve_runtime_flag_profile()
+                    .dxgi_scoped_latch
+                    .enabled;
+                let can_use_dxgi = if scoped_latch_enabled {
+                    crate::wgpu_compositor::adapter_selector::is_dxgi_enabled_for(&stream_class)
+                } else {
+                    session.dxgi_state.is_usable()
+                        && crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled()
+                };
+                if session.gpu.capabilities.zero_copy_available() && can_use_dxgi {
                     if let Some(duped_shared) = shared_arc.duplicate() {
                         match crate::wgpu_compositor::dxgi_import::import_into_wgpu(
                             &session.gpu.device,
@@ -4771,6 +4889,9 @@ pub(crate) async fn present_native_frame_internal(
                                 ) {
                                     Ok(texture) => {
                                         session.mark_dxgi_supported();
+                                        crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_probe_success(
+                                            &stream_class,
+                                        );
                                         layer_texture = Some(texture);
                                     }
                                     Err(render_error) => {
@@ -4791,6 +4912,16 @@ pub(crate) async fn present_native_frame_internal(
                                                 crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::ImportFailed
                                             }
                                         };
+                                        crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                                            &stream_class,
+                                            crate::wgpu_compositor::adapter_selector::scoped_reason_for_dxgi_failure(
+                                                match latch_reason {
+                                                    crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::UnsupportedFeature => crate::wgpu_compositor::DxgiFailureReason::UnsupportedResourceConfiguration,
+                                                    crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::DimensionMismatch => crate::wgpu_compositor::DxgiFailureReason::DimensionMismatch,
+                                                    _ => crate::wgpu_compositor::DxgiFailureReason::ImportFailed,
+                                                },
+                                            ),
+                                        );
                                         crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
                                             latch_reason,
                                             crate::wgpu_compositor::adapter_selector::DxgiLatchContext {
@@ -4811,6 +4942,12 @@ pub(crate) async fn present_native_frame_internal(
                                     "[NativePreviewSession] import_into_wgpu failed: {reason:?}"
                                 );
                                 session.mark_dxgi_failed(reason);
+                                crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                                    &stream_class,
+                                    crate::wgpu_compositor::adapter_selector::scoped_reason_for_dxgi_failure(
+                                        reason,
+                                    ),
+                                );
                                 let latch_reason = crate::wgpu_compositor::adapter_selector::latch_reason_for_dxgi_failure(reason);
                                 crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
                                     latch_reason,
@@ -5895,6 +6032,18 @@ struct WindowsVideoAdapterFacts {
 
 #[derive(Debug, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
+struct ScopedDxgiLatchTelemetry {
+    enabled: bool,
+    arm: &'static str,
+    latch_events: Vec<crate::wgpu_compositor::scoped_dxgi_latch::LatchEvent>,
+    latched_classes: Vec<crate::wgpu_compositor::scoped_dxgi_latch::StreamClass>,
+    breaker_promotions: u64,
+    probes_attempted: u64,
+    probes_succeeded: u64,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 struct WindowsVideoPathTelemetry {
     platform: &'static str,
     synthetic: bool,
@@ -5902,6 +6051,7 @@ struct WindowsVideoPathTelemetry {
     hazard_counters: crate::wgpu_compositor::DxgiHazardSnapshot,
     adapter_facts: Vec<WindowsVideoAdapterFacts>,
     latch_events: Vec<crate::wgpu_compositor::adapter_selector::DxgiLatchEvent>,
+    scoped_latch: ScopedDxgiLatchTelemetry,
     frames_by_source: crate::wgpu_compositor::FramesBySource,
 }
 
@@ -5946,6 +6096,34 @@ pub async fn get_windows_video_path_telemetry(
         hazard_counters: crate::wgpu_compositor::dxgi_hazards::snapshot(),
         adapter_facts,
         latch_events: crate::wgpu_compositor::adapter_selector::get_dxgi_latch_events(),
+        scoped_latch: {
+            let enabled = crate::runtime_profile::resolve_runtime_flag_profile()
+                .dxgi_scoped_latch
+                .enabled;
+            let arm = if enabled {
+                "dxgi-scoped-latch"
+            } else {
+                "dxgi-legacy-latch"
+            };
+            let snapshot = crate::wgpu_compositor::adapter_selector::get_scoped_dxgi_latch_snapshot()
+                .unwrap_or(crate::wgpu_compositor::ScopedDxgiSnapshot {
+                    device_latched: false,
+                    latched_classes: Vec::new(),
+                    breaker_promotions: 0,
+                    probes_attempted: 0,
+                    probes_succeeded: 0,
+                    events: Vec::new(),
+                });
+            ScopedDxgiLatchTelemetry {
+                enabled,
+                arm,
+                latch_events: snapshot.events,
+                latched_classes: snapshot.latched_classes,
+                breaker_promotions: snapshot.breaker_promotions,
+                probes_attempted: snapshot.probes_attempted,
+                probes_succeeded: snapshot.probes_succeeded,
+            }
+        },
         frames_by_source: session_snapshot.frames_by_source,
     };
     serde_json::to_value(payload)

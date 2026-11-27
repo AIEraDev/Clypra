@@ -40,6 +40,7 @@ pub struct RuntimeFlagProfile {
     pub decode_path_source: &'static str,
     pub allow_unverified: ResolvedRuntimeFlag,
     pub disable_dirty_recovery: ResolvedRuntimeFlag,
+    pub dxgi_scoped_latch: ResolvedRuntimeFlag,
 }
 
 impl RuntimeFlagProfile {
@@ -61,6 +62,7 @@ pub struct RuntimeFlagInputs<'a> {
     pub decode_path: Option<&'a str>,
     pub allow_unverified: Option<&'a str>,
     pub disable_dirty_recovery: Option<&'a str>,
+    pub dxgi_scoped_latch: Option<&'a str>,
 }
 
 pub fn resolve_runtime_flag_profile() -> RuntimeFlagProfile {
@@ -71,6 +73,7 @@ pub fn resolve_runtime_flag_profile() -> RuntimeFlagProfile {
     let decode_path = env_value("CLYPRA_DECODE_PATH");
     let allow_unverified = env_value("CLYPRA_ALLOW_UNVERIFIED");
     let disable_dirty_recovery = env_value("CLYPRA_DEBUG_DISABLE_DIRTY_RECOVERY");
+    let dxgi_scoped_latch = env_value("CLYPRA_DXGI_SCOPED_LATCH");
     resolve_runtime_flag_profile_from_inputs(
         cfg!(debug_assertions),
         RuntimeFlagInputs {
@@ -81,6 +84,7 @@ pub fn resolve_runtime_flag_profile() -> RuntimeFlagProfile {
             decode_path: decode_path.as_deref(),
             allow_unverified: allow_unverified.as_deref(),
             disable_dirty_recovery: disable_dirty_recovery.as_deref(),
+            dxgi_scoped_latch: dxgi_scoped_latch.as_deref(),
         },
     )
 }
@@ -112,6 +116,7 @@ pub fn resolve_runtime_flag_profile_from_inputs(
         decode_path_source,
         allow_unverified: resolve_bool(inputs.allow_unverified, false),
         disable_dirty_recovery: resolve_bool(inputs.disable_dirty_recovery, false),
+        dxgi_scoped_latch: resolve_bool(inputs.dxgi_scoped_latch, false),
     }
 }
 
@@ -185,6 +190,7 @@ mod tests {
         assert_eq!(profile.decode_path_source, "dev-default");
         assert!(!profile.allow_unverified.enabled);
         assert!(!profile.disable_dirty_recovery.enabled);
+        assert!(!profile.dxgi_scoped_latch.enabled);
         assert!(profile.dirty_recovery_enabled());
     }
 
@@ -214,6 +220,7 @@ mod tests {
                 decode_path: Some("metal"),
                 allow_unverified: Some("1"),
                 disable_dirty_recovery: Some("yes"),
+                dxgi_scoped_latch: Some("1"),
                 ..RuntimeFlagInputs::default()
             },
         );
@@ -225,6 +232,7 @@ mod tests {
         assert_eq!(profile.decode_path_source, "env");
         assert!(profile.allow_unverified.enabled);
         assert!(profile.disable_dirty_recovery.enabled);
+        assert!(profile.dxgi_scoped_latch.enabled);
         assert!(!profile.dirty_recovery_enabled());
     }
 

@@ -1,5 +1,6 @@
 use super::preview_capabilities::PreviewCapabilities;
 use serde::{Deserialize, Serialize};
+use std::sync::{Mutex, OnceLock};
 use wgpu::{Adapter, Device, DeviceType, Instance, Queue};
 
 /// Detailed metadata about the active GPU adapter.
@@ -240,6 +241,27 @@ pub const fn latch_reason_for_dxgi_failure(
     }
 }
 
+pub const fn scoped_reason_for_dxgi_failure(
+    reason: super::render_path::DxgiFailureReason,
+) -> super::scoped_dxgi_latch::ScopedDxgiFailureReason {
+    use super::render_path::DxgiFailureReason;
+    use super::scoped_dxgi_latch::ScopedDxgiFailureReason;
+    match reason {
+        DxgiFailureReason::DeviceLost => ScopedDxgiFailureReason::DeviceLost,
+        DxgiFailureReason::AdapterMismatchForCurrentImportPath => {
+            ScopedDxgiFailureReason::AdapterMismatch
+        }
+        DxgiFailureReason::UnsupportedFormat => ScopedDxgiFailureReason::FormatUnsupportedP010,
+        DxgiFailureReason::ImportFailed
+        | DxgiFailureReason::InvalidTexture
+        | DxgiFailureReason::WrongArraySlice
+        | DxgiFailureReason::SurfaceCreationFailed
+        | DxgiFailureReason::DimensionMismatch
+        | DxgiFailureReason::UnsupportedResourceConfiguration
+        | DxgiFailureReason::SynchronizationFailure => ScopedDxgiFailureReason::ImportFailed,
+    }
+}
+
 /// Extended variant: also stores per-frame context at the latch site.
 /// Call this from decode paths that have codec/format/resolution available.
 pub fn mark_dxgi_runtime_disabled_with_context(
@@ -326,6 +348,9 @@ pub fn reset_dxgi_latch_state_for_tests() {
     if let Ok(mut events) = latch_events_lock().lock() {
         events.clear();
     }
+    if let Ok(mut latch) = scoped_dxgi_latch().lock() {
+        latch.reset_all();
+    }
 }
 
 /// Parse a kebab-case reason string back into the enum.
@@ -365,6 +390,86 @@ pub fn is_dxgi_runtime_enabled() -> bool {
     {
         false
     }
+}
+
+static SCOPED_DXGI_LATCH: OnceLock<Mutex<super::scoped_dxgi_latch::ScopedDxgiLatch>> =
+    OnceLock::new();
+
+fn scoped_dxgi_latch() -> &'static Mutex<super::scoped_dxgi_latch::ScopedDxgiLatch> {
+    SCOPED_DXGI_LATCH.get_or_init(|| {
+        Mutex::new(super::scoped_dxgi_latch::ScopedDxgiLatch::new(
+            crate::runtime_profile::resolve_runtime_flag_profile()
+                .dxgi_scoped_latch
+                .enabled,
+            is_dxgi_runtime_enabled(),
+        ))
+    })
+}
+
+fn scoped_latch_enabled() -> bool {
+    crate::runtime_profile::resolve_runtime_flag_profile()
+        .dxgi_scoped_latch
+        .enabled
+}
+
+pub fn is_dxgi_enabled_for(class: &super::scoped_dxgi_latch::StreamClass) -> bool {
+    if !scoped_latch_enabled() {
+        return is_dxgi_runtime_enabled();
+    }
+    scoped_dxgi_latch()
+        .lock()
+        .map(|mut latch| latch.is_enabled_for(class))
+        .unwrap_or(false)
+}
+
+pub fn record_scoped_dxgi_failure(
+    class: &super::scoped_dxgi_latch::StreamClass,
+    reason: super::scoped_dxgi_latch::ScopedDxgiFailureReason,
+) -> Option<super::scoped_dxgi_latch::LatchEvent> {
+    if !scoped_latch_enabled() {
+        return None;
+    }
+    scoped_dxgi_latch()
+        .lock()
+        .ok()
+        .and_then(|mut latch| latch.record_failure(class, reason))
+}
+
+pub fn record_scoped_dxgi_probe_success(
+    class: &super::scoped_dxgi_latch::StreamClass,
+) -> bool {
+    if !scoped_latch_enabled() {
+        return false;
+    }
+    scoped_dxgi_latch()
+        .lock()
+        .map(|mut latch| latch.record_probe_success(class))
+        .unwrap_or(false)
+}
+
+pub fn record_scoped_dxgi_probe_failure(
+    class: &super::scoped_dxgi_latch::StreamClass,
+) -> bool {
+    if !scoped_latch_enabled() {
+        return false;
+    }
+    scoped_dxgi_latch()
+        .lock()
+        .map(|mut latch| latch.record_probe_failure(class))
+        .unwrap_or(false)
+}
+
+pub fn reset_scoped_dxgi_latches_for_project() {
+    if let Ok(mut latch) = scoped_dxgi_latch().lock() {
+        latch.reset_stream_classes();
+    }
+}
+
+pub fn get_scoped_dxgi_latch_snapshot() -> Option<super::scoped_dxgi_latch::ScopedDxgiSnapshot> {
+    if !scoped_latch_enabled() {
+        return None;
+    }
+    scoped_dxgi_latch().lock().ok().map(|latch| latch.snapshot())
 }
 
 pub struct GpuContext {

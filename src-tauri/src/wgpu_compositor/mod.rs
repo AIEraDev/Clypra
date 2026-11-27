@@ -104,6 +104,12 @@ pub use preview_capabilities::{GpuTimestampCapabilities, PreviewCapabilities};
 pub mod adapter_selector;
 pub use adapter_selector::{GpuContext, SelectedGpuInfo};
 
+pub mod scoped_dxgi_latch;
+pub use scoped_dxgi_latch::{
+    scope_for, LatchEvent, LatchScope, MonotonicClock, ScopedDxgiFailureReason, ScopedDxgiLatch,
+    ScopedDxgiSnapshot, SizeBucket, StreamClass,
+};
+
 pub mod lut_parser;
 pub use lut_parser::ParsedLut3D;
 

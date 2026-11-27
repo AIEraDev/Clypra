@@ -430,6 +430,15 @@ impl StreamDecoderActor {
             let decode_started = Instant::now();
             let stream_color = guard.metadata().color;
             let source_metadata = guard.metadata();
+            #[cfg(target_os = "windows")]
+            let stream_class = crate::wgpu_compositor::StreamClass::from_stream_metadata(
+                source_metadata.codec_name.clone(),
+                source_metadata.codec_profile.clone(),
+                source_metadata.bits_per_raw_sample,
+                &source_metadata.pixel_format,
+                source_metadata.width,
+                source_metadata.height,
+            );
             let container_format = guard.container_format().to_string();
             let is_hardware_accelerated = guard.is_hardware_accelerated();
             let source_rotation = guard.rotation();
@@ -447,7 +456,7 @@ impl StreamDecoderActor {
             guard.set_transfer_site(transfer_site);
 
             #[cfg(target_os = "windows")]
-            if crate::wgpu_compositor::adapter_selector::is_dxgi_runtime_enabled() {
+            if crate::wgpu_compositor::adapter_selector::is_dxgi_enabled_for(&stream_class) {
                 let mut frame_color =
                     crate::filmstrip_engine::decoder::VideoColorMetadata::default();
                 let mut width = 0u32;
@@ -461,6 +470,9 @@ impl StreamDecoderActor {
                     &mut height,
                 ) {
                     Ok(Some(shared)) => {
+                        crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_probe_success(
+                            &stream_class,
+                        );
                         let decode_us =
                             decode_started.elapsed().as_micros().min(u32::MAX as u128) as u32;
                         let color = crate::commands::native_preview::merge_color_metadata(
@@ -495,6 +507,10 @@ impl StreamDecoderActor {
                         ));
                     }
                     Ok(None) => {
+                        crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                            &stream_class,
+                            crate::wgpu_compositor::ScopedDxgiFailureReason::NonD3d11Surface,
+                        );
                         // Software or non-D3D11 frame or unsupported zero-copy; disable runtime DXGI probing
                         crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
                             crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::NonD3d11Surface,
@@ -519,6 +535,10 @@ impl StreamDecoderActor {
                             "[StreamActor] DXGI decode failed at {}s: {}, attempting CPU NV12 fallback",
                             target_time,
                             err
+                        );
+                        crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                            &stream_class,
+                            crate::wgpu_compositor::ScopedDxgiFailureReason::DecodeFailed,
                         );
                         crate::wgpu_compositor::adapter_selector::mark_dxgi_runtime_disabled_with_context(
                             crate::wgpu_compositor::adapter_selector::DxgiLatchReasonCode::DxgiDecodeFailed,

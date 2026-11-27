@@ -54,6 +54,12 @@ pub(crate) struct CachedCompositor {
 impl NativePreviewSession {
     pub fn new(gpu: Arc<GpuContext>) -> Self {
         let mut _span = crate::cold_start::SpanGuard::start("c0_pipeline_compile");
+        if crate::runtime_profile::resolve_runtime_flag_profile()
+            .dxgi_scoped_latch
+            .enabled
+        {
+            crate::wgpu_compositor::adapter_selector::reset_scoped_dxgi_latches_for_project();
+        }
         let yuv_layout = create_yuv_hdr_bind_group_layout(&gpu.device);
         let sampler = create_yuv_hdr_sampler(&gpu.device);
         let pipeline = create_yuv_hdr_render_pipeline(
@@ -64,6 +70,9 @@ impl NativePreviewSession {
         let text_pipeline =
             TextEffectPipeline::new(&gpu.device, wgpu::TextureFormat::Rgba8UnormSrgb);
         let text_cache = TextLayerCache::new(TEXT_LAYER_CACHE_BYTES);
+        let scoped_latch_enabled = crate::runtime_profile::resolve_runtime_flag_profile()
+            .dxgi_scoped_latch
+            .enabled;
         let dxgi_state = if gpu.capabilities.zero_copy_available() {
             DxgiImportState::Unknown
         } else {
@@ -80,8 +89,18 @@ impl NativePreviewSession {
                     latch_kind: crate::wgpu_compositor::adapter_selector::latch_kind_for(reason),
                 },
             );
-            DxgiImportState::Disabled {
-                reason: DisableReason::UnsupportedFeature,
+            if scoped_latch_enabled {
+                crate::wgpu_compositor::adapter_selector::record_scoped_dxgi_failure(
+                    &crate::wgpu_compositor::StreamClass::from_stream_metadata(
+                        "unknown", "unknown", 8, "", 0, 0,
+                    ),
+                    crate::wgpu_compositor::ScopedDxgiFailureReason::Nv12UnavailableAtConstruction,
+                );
+                DxgiImportState::Unknown
+            } else {
+                DxgiImportState::Disabled {
+                    reason: DisableReason::UnsupportedFeature,
+                }
             }
         };
         let transparent_mask_placeholder = Self::create_transparent_mask_placeholder(&gpu);
@@ -108,12 +127,22 @@ impl NativePreviewSession {
     }
 
     pub fn mark_dxgi_failed(&mut self, reason: DxgiFailureReason) {
-        self.dxgi_state = DxgiImportState::Failed { reason };
+        if !crate::runtime_profile::resolve_runtime_flag_profile()
+            .dxgi_scoped_latch
+            .enabled
+        {
+            self.dxgi_state = DxgiImportState::Failed { reason };
+        }
         log::warn!("[NativePreviewSession] DXGI zero-copy import marked Failed ({reason}) for this session");
     }
 
     pub fn mark_dxgi_disabled(&mut self, reason: DisableReason) {
-        self.dxgi_state = DxgiImportState::Disabled { reason };
+        if !crate::runtime_profile::resolve_runtime_flag_profile()
+            .dxgi_scoped_latch
+            .enabled
+        {
+            self.dxgi_state = DxgiImportState::Disabled { reason };
+        }
         log::info!(
             "[NativePreviewSession] DXGI zero-copy import administratively Disabled ({reason})"
         );
@@ -148,6 +177,12 @@ impl NativePreviewSession {
 
     pub fn reset_dxgi_state(&mut self) {
         self.dxgi_state = DxgiImportState::Unknown;
+        if crate::runtime_profile::resolve_runtime_flag_profile()
+            .dxgi_scoped_latch
+            .enabled
+        {
+            crate::wgpu_compositor::adapter_selector::reset_scoped_dxgi_latches_for_project();
+        }
     }
 
     /// Return the persistent compositor for a render target configuration.
