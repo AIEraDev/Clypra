@@ -4,7 +4,11 @@ Status: pre-registered; fixture pack locked before field data
 
 Protocol version: `w1a-volunteer-v1`
 
+Build under test: `Clypra v1.6.9-1` ([Windows prerelease](https://github.com/AIEraDev/Clypra/releases/tag/v1.6.9-1))
+
 Fixture pack: `w1a-volunteer-v1-fixtures.zip`
+
+Fixture release: [w1a-volunteer-v1](https://github.com/AIEraDev/Clypra/releases/tag/w1a-volunteer-v1)
 
 Published archive SHA-256 (verify the downloaded archive itself):
 `9dd56867104fe619fd29b0e952708efe68fe18654f26dcbf1741c0f7efebc7ff`
@@ -39,7 +43,9 @@ different cohorts and repeat the comparison on an unchanged driver.
 ## Protocol lock and arm counterbalancing
 
 This exact guide, including the thresholds and sequence, must be committed and
-tagged as `w1a-volunteer-v1` before the first volunteer starts. Do not change
+tagged before the first volunteer starts. The fixture/protocol release remains
+`w1a-volunteer-v1`; the build-specific guide lock is tagged
+`w1a-volunteer-v1-build-1.6.9-1`. Do not change
 the arm order, fixture, thresholds, or exclusion rules after data collection
 begins. A substantive change creates a new protocol version; do not combine its
 results with v1.
@@ -88,6 +94,14 @@ setx CLYPRA_MEDIA_HASH <published-fixture-pack-sha256>
 `setx` affects future processes only. Fully exit Clypra and restart Windows
 (or sign out and back in) before launching from the Start menu. Do not change
 the flag during a session.
+
+## Windows installer trust prompt
+
+The `v1.6.9-1` Windows x64 MSI and NSIS installers are not Authenticode-signed.
+Windows SmartScreen may therefore show an “unknown publisher” or similar
+warning. This is expected for this volunteer prerelease; download the installer
+only from the linked GitHub prerelease and verify the release asset before
+continuing. Do not bypass a warning for a file obtained from another source.
 
 Before sending a result, confirm all of the following in the uploaded session
 header: `resolvedFlags.CLYPRA_DXGI_SCOPED_LATCH`, the expected
