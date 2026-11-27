@@ -49,11 +49,13 @@ All cross-platform engineering in Clypra must adhere to the following 10 non-neg
 |---|---|---|---|---|---|---|
 | **macOS Desktop** | `aarch64-apple-darwin`<br>`x86_64-apple-darwin` | macOS 12 (Monterey)+ | Apple Silicon (M1+)<br>Intel 64-bit | WKWebView (`macOSPrivateApi: true`) | Metal (`wgpu 24`) via `CAMetalLayer` native surface | VideoToolbox (`VTDecompressionSession`), static FFmpeg 8.x |
 | **Windows Desktop** | `x86_64-pc-windows-msvc` | Windows 10 (1809+, Build 17763) / 11 | x86_64 (64-bit) | Microsoft Edge WebView2 (Chromium Evergreen) | DirectX 12 (`wgpu 24`) | D3D11VA with DXGI zero-copy shared surface import, static FFmpeg 8.x |
-| **Linux Desktop** | `x86_64-unknown-linux-gnu`<br>`aarch64-unknown-linux-gnu` | Ubuntu 22.04 LTS+, Debian 12+, Fedora 38+ (glibc 2.31+) | x86_64<br>AArch64 | WebKitGTK 4.1 (`libwebkit2gtk-4.1-dev`) | Vulkan (`wgpu 24`), Mesa Lavapipe software rasterizer fallback | VAAPI (`libva-dev`), static FFmpeg 8.x |
+| **Linux Desktop** | `x86_64-unknown-linux-gnu`<br>`aarch64-unknown-linux-gnu` | Ubuntu 22.04 LTS+, Debian 12+, Fedora 38+ (glibc 2.31+) | x86_64 (verified release target)<br>AArch64 (experimental, unverified) | WebKitGTK 4.1 (`libwebkit2gtk-4.1-dev`) | Vulkan (`wgpu 24`), Mesa Lavapipe software rasterizer fallback | VAAPI (`libva-dev`), static FFmpeg 8.x |
 | **Mobile (iOS/Android)** | *N/A (Capacitor sync)* | Experimental / Roadmap | N/A | Capacitor Web Shell | WebGL / Canvas fallback | Web Audio / HTML5 Video (No native desktop engine) |
 
 > [!NOTE]
 > Mobile targets (Capacitor) exist in `package.json` for prospective remote workspace control and preview syncing, but are explicitly **excluded from desktop NLE release readiness validation**.
+
+Linux AArch64 remains a source and sidecar target for follow-up validation, but it is not a required public release artifact until the FFmpeg log-callback ABI is corrected and an independent release build passes. The required Linux release target is x86_64.
 
 ---
 
