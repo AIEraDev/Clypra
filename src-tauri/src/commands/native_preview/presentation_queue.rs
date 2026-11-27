@@ -41,6 +41,10 @@ pub(crate) struct NativeDecodeTimings {
     pub(crate) source_bits_per_raw_sample: Option<u8>,
     pub(crate) source_frame_rate_milli: Option<u32>,
     pub(crate) codec_name: Option<String>,
+    #[allow(dead_code)]
+    pub(crate) codec_profile: Option<String>,
+    #[allow(dead_code)]
+    pub(crate) pixel_format: Option<String>,
     pub(crate) hardware_frames_downloaded: Option<u32>,
     pub(crate) served_from: Option<crate::native_core::performance::ServedFrom>,
     pub(crate) hw_device_type: Option<String>,

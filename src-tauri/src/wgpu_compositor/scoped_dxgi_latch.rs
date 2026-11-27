@@ -102,6 +102,36 @@ impl StreamClass {
             size_bucket,
         }
     }
+
+    pub fn from_stream_metadata(
+        codec: impl Into<String>,
+        profile: impl Into<String>,
+        bit_depth: u8,
+        pixel_format: &str,
+        width: u32,
+        height: u32,
+    ) -> Self {
+        Self::new(
+            codec,
+            profile,
+            bit_depth,
+            chroma_format_for_pixel_format(pixel_format),
+            SizeBucket::from_dimensions(width, height),
+        )
+    }
+}
+
+fn chroma_format_for_pixel_format(pixel_format: &str) -> String {
+    let format = pixel_format.to_ascii_lowercase();
+    if format.contains("444") {
+        "4:4:4".to_string()
+    } else if format.contains("422") {
+        "4:2:2".to_string()
+    } else if format.contains("420") || format.contains("nv12") || format.contains("p010") {
+        "4:2:0".to_string()
+    } else {
+        "unknown".to_string()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -297,7 +327,21 @@ impl ScopedDxgiLatch {
 
         match scope {
             LatchScope::Device => self.device_latched = true,
-            LatchScope::StreamClass => self.latch_class(class, now_ms),
+            LatchScope::StreamClass => {
+                let mut entry = self.classes.entry(class.clone()).or_default();
+                if entry.probe_in_flight {
+                    entry.probe_in_flight = false;
+                    entry.backoff_ms = entry
+                        .backoff_ms
+                        .saturating_mul(2)
+                        .min(MAX_PROBE_BACKOFF_MS);
+                    entry.next_probe_at_ms = Some(now_ms.saturating_add(entry.backoff_ms));
+                } else {
+                    entry.backoff_ms = INITIAL_PROBE_BACKOFF_MS;
+                    entry.next_probe_at_ms = Some(now_ms.saturating_add(entry.backoff_ms));
+                }
+                entry.latched = true;
+            }
             LatchScope::Frame => {
                 let mut entry = self.classes.entry(class.clone()).or_default();
                 while entry.frame_failures_ms.front().is_some_and(|failure| {
@@ -306,7 +350,16 @@ impl ScopedDxgiLatch {
                     entry.frame_failures_ms.pop_front();
                 }
                 entry.frame_failures_ms.push_back(now_ms);
-                if entry.frame_failures_ms.len() >= FRAME_FAILURE_THRESHOLD && !entry.latched {
+                if entry.probe_in_flight {
+                    entry.probe_in_flight = false;
+                    entry.backoff_ms = entry
+                        .backoff_ms
+                        .saturating_mul(2)
+                        .min(MAX_PROBE_BACKOFF_MS);
+                    entry.next_probe_at_ms = Some(now_ms.saturating_add(entry.backoff_ms));
+                } else if entry.frame_failures_ms.len() >= FRAME_FAILURE_THRESHOLD
+                    && !entry.latched
+                {
                     entry.latched = true;
                     entry.backoff_ms = INITIAL_PROBE_BACKOFF_MS;
                     entry.next_probe_at_ms = Some(now_ms.saturating_add(entry.backoff_ms));
@@ -355,20 +408,17 @@ impl ScopedDxgiLatch {
         true
     }
 
-    fn latch_class(&self, class: &StreamClass, now_ms: u64) {
-        let mut entry = self.classes.entry(class.clone()).or_default();
-        entry.latched = true;
-        entry.backoff_ms = INITIAL_PROBE_BACKOFF_MS;
-        entry.next_probe_at_ms = Some(now_ms.saturating_add(entry.backoff_ms));
-        entry.probe_in_flight = false;
-    }
-
     pub fn reset_stream_classes(&mut self) {
         self.classes.clear();
         self.breaker_promotions = 0;
         self.probes_attempted = 0;
         self.probes_succeeded = 0;
         self.events.clear();
+    }
+
+    pub fn reset_all(&mut self) {
+        self.reset_stream_classes();
+        self.device_latched = false;
     }
 
     pub fn snapshot(&self) -> ScopedDxgiSnapshot {
