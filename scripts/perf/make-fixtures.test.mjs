@@ -6,6 +6,7 @@ import path from "node:path";
 import {
   buildTierProjects,
   generateManifest,
+  generateW1AVolunteerFixtures,
   verifyManifest,
   hashFile,
 } from "./make-fixtures.mjs";
@@ -86,6 +87,22 @@ test("verifyManifest verifies matching media and projects and flags discrepancie
     const resFailProject = await verifyManifest(mediaDir, projectsDir, manifestPath);
     assert.equal(resFailProject.ok, false);
     assert.match(resFailProject.errors[0], /Project fixture hash mismatch/);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("generateW1AVolunteerFixtures emits the locked two-clip descriptor", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "clypra-w1a-fixtures-test-"));
+  try {
+    const manifest = await generateW1AVolunteerFixtures(directory);
+    assert.equal(manifest.protocolVersion, "w1a-volunteer-v1");
+    assert.equal(manifest.media.length, 2);
+    assert.deepEqual(manifest.media.map((entry) => entry.role), ["A", "B"]);
+    assert.equal(manifest.media[0].bitDepth, 8);
+    assert.equal(manifest.media[1].profile, "main10");
+    assert.match(manifest.packSha256, /^[a-f0-9]{64}$/);
+    assert.equal((await readFile(path.join(directory, "manifest.json"), "utf8")).includes(manifest.packSha256), true);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
