@@ -1,13 +1,13 @@
 # Clypra Performance Telemetry Architecture
 
 > **Last updated:** September 2026  
-> **Status:** Production — session-file ingest model active
+> **Status:** Production — session-file ingest model active; uploads begin after the first-run disclosure
 
 ---
 
 ## 1. Overview
 
-Clypra's telemetry system collects anonymous, strictly numerical performance data so engineers can maintain SLA budgets across a fragmented hardware and OS matrix. All data collection follows a **Zero-PII** privacy contract and a **one-row-per-session** storage model.
+Clypra's telemetry system collects anonymous performance and error diagnostics so engineers can maintain SLA budgets across a fragmented hardware and OS matrix. Uploads begin after the first-run disclosure and can be disabled in Settings → Preview Diagnostics. All collection follows a **Zero-PII** privacy contract and a **one-row-per-session** storage model.
 
 ### SLA Budgets
 
@@ -26,13 +26,13 @@ The following are **never** collected:
 
 - Video pixel buffers, audio samples, image thumbnails
 - File paths, project names, timeline labels, caption text
-- Usernames, email addresses, IP addresses, device identifiers
+- Usernames, email addresses, IP addresses, persistent installation identifiers, or project hashes
 
 The following are collected — all anonymous and numerical:
 
 - Stage render timings (decode µs, compose µs, GPU queue µs, total frame µs)
 - Seek latency durations and dropped frame ratios
-- Hardware context: OS family, CPU cores, GPU model, graphics backend
+- Hardware context: OS family, CPU cores, GPU model/vendor/device facts when exposed, and graphics backend
 - Video profile: codec, resolution bucket, bit depth, HDR format
 - Workload mode: playback, seek, scrub, export, AI inference
 
@@ -255,7 +255,6 @@ CLYPRA_SCENARIO_ID=preview-multilayer-scrub-v1 \
 CLYPRA_SCENARIO_HASH=<hash-from-scenario> \
 CLYPRA_EXPERIMENT_ARM=B \
 CLYPRA_MEDIA_HASH=<sha256-of-the-fixed-media-set> \
-CLYPRA_PROJECT_HASH=<sha256-of-the-fixed-project-file> \
 npm run tauri -- dev --release --features perf-driver
 ```
 

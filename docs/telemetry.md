@@ -1,11 +1,17 @@
 # Clypra Telemetry
 
-Clypra can optionally upload anonymous performance reports to help improve the app.
+Clypra uploads anonymous performance and error reports to help improve the app.
+Uploads begin only after the first-run disclosure is shown. The disclosure has
+equal **Keep sharing** and **Turn off** choices; pressing Escape keeps sharing.
+You can change this at any time in Settings → Preview Diagnostics.
 
-## Opt-in
+## Default and controls
 
-Telemetry upload is **off by default** for all installs, including upgrades.
-You must explicitly enable it in Settings → Diagnostics.
+For a new install with no saved choice, upload is enabled after the disclosure
+has been shown and the default state is recorded as `consentState: "default"`.
+An explicit **Keep sharing** choice is recorded as `consentState: "explicit-on"`.
+An explicit opt-out prevents new uploads and retries, and removes completed
+pending session files from the device.
 
 To disable it for CI or contributor environments, set:
 ```
@@ -14,14 +20,19 @@ CLYPRA_DISABLE_TELEMETRY_UPLOAD=1
 
 ## What is collected
 
-Each session report contains only the following fields:
+Each performance session report contains only diagnostic fields such as:
 - Session ID (a random UUID generated at session open — not tied to your account or device)
 - Frame stage timing percentiles (p50, p95, p99) in microseconds
 - GPU adapter name, vendor ID, device ID, driver version, and backend (e.g. "Intel HD 520", `0x8086`, `0x9a49`, driver version, "d3d12") when the platform exposes them
 - Preview quality tier and canvas dimensions
 - UNCH / skipped-download counts
 - Timeline zoom performance rollups (frame rate percentiles, spring settle time, discrete wheel delta buckets, DPR, and ruler/frame-cell timing aggregates — strictly zero PII)
-- App version and git commit SHA
+- App version, build provenance, runtime flags, and consent state
+- Bounded crash metadata when an error report is generated: error type, sanitized error text/stack, OS/WebView information, bounded memory fields, and recent lifecycle event types
+
+The `mediaHash` header field is only populated when an operator explicitly
+supplies the published W1-A fixture-pack hash for a validation run. Project
+hashes are not uploaded.
 
 ### Windows video-path instrumentation
 
@@ -47,13 +58,15 @@ the Windows DXGI zero-copy path and contains:
 The debug-only `force_dxgi_latch` command can mark a session as `synthetic` and
 inject a small observation profile so the Rust → NDJSON → linter → ingest
 contract can be checked on macOS. Synthetic records validate the telemetry
-pipeline, not Windows hardware behavior. Upload remains opt-in only, and the
-separate `clypra-api` ingest contract stores this record as supplementary
+pipeline, not Windows hardware behavior. Upload requires the first-run
+disclosure and remains controllable in Settings, and the separate `clypra-api`
+ingest contract stores this record as supplementary
 session evidence rather than treating it as a performance verdict.
 
 ## What is NOT collected
-- Project names, file paths, or media content
+- Project names, file paths, project hashes, or media content
 - User account information
+- Persistent installation identifiers by default
 - Raw pointer coordinates, individual wheel event timestamps, or user interaction paths
 - Hostnames or IP addresses (beyond standard TLS connection metadata)
 
