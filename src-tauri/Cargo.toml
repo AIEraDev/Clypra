@@ -147,6 +147,11 @@ ort = { version = "2.0.0-rc.13", features = ["copy-dylibs"] }
 [dev-dependencies]
 proptest = "1"
 
+# Keep the exact crates.io FFmpeg bindings version while avoiding bindgen's
+# Windows build-script stack overflow from its deeply chained builder.
+[patch.crates-io]
+ffmpeg-sys-next = { path = "../vendor/ffmpeg-sys-next" }
+
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 objc2 = "0.6"
 metal = "0.31.0"
