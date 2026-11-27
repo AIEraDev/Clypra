@@ -3,7 +3,7 @@
 # Automatically loaded by: Antigravity, Kiro, Cursor, OpenAI Codex, Copilot.
 
 ## 1. Project Identity & Verified Technology Stack
-Clypra is a high-performance native desktop video editor (`v1.6.8`) targeting macOS and Windows.
+Clypra is a high-performance native desktop video editor (`v1.6.9-1`) targeting macOS and Windows.
 - **Frontend**: React 19 + TypeScript 5.8 + Vite 7 (`src/`)
 - **Desktop Shell & Backend**: Tauri 2.11 + Rust 2021 edition (`src-tauri/`)
 - **State Management**: Zustand v5 stores (`src/store/`)
