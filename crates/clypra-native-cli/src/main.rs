@@ -4,6 +4,12 @@ use clypra_native_core::{compare_rgba8, compatibility::native_feature_manifest, 
 use image::{ImageFormat, RgbaImage};
 use std::{env, fs, io::Cursor, process::ExitCode};
 
+#[path = "../../../src-tauri/src/runtime_profile.rs"]
+mod runtime_profile;
+
+#[path = "../../../src-tauri/src/wgpu_compositor/scoped_dxgi_latch.rs"]
+pub mod scoped_dxgi_latch;
+
 // ── Inline the shared wgpu compositor — same source as the daemon, no copy ──
 mod wgpu_compositor {
     pub mod preview_capabilities {
@@ -24,6 +30,7 @@ mod wgpu_compositor {
     pub mod adapter_selector {
         include!("../../../src-tauri/src/wgpu_compositor/adapter_selector.rs");
     }
+    pub use crate::scoped_dxgi_latch;
     pub mod multi_track_composer {
         include!("../../../src-tauri/src/wgpu_compositor/multi_track_composer.rs");
     }

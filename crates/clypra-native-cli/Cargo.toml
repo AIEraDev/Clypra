@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 clypra-native-core = { path = "../clypra-native-core" }
 bytemuck = { version = "1.21", features = ["derive"] }
+dashmap = "6"
 image = { version = "0.25", default-features = false, features = ["png"] }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }

@@ -315,9 +315,7 @@ impl ScopedDxgiLatch {
         if !self.enabled {
             return None;
         }
-        let Some(scope) = scope_for(reason) else {
-            return None;
-        };
+        let scope = scope_for(reason)?;
         let now_ms = self.clock.now_ms();
         let event = LatchEvent {
             scope,
