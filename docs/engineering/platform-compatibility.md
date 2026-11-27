@@ -55,7 +55,11 @@ All cross-platform engineering in Clypra must adhere to the following 10 non-neg
 > [!NOTE]
 > Mobile targets (Capacitor) exist in `package.json` for prospective remote workspace control and preview syncing, but are explicitly **excluded from desktop NLE release readiness validation**.
 
-Linux AArch64 remains a source and sidecar target for follow-up validation, but it is not a required public release artifact until the FFmpeg log-callback ABI is corrected and an independent release build passes. The required Linux release target is x86_64.
+Linux AArch64 remains a source and sidecar target for follow-up validation, but it is
+unverified: the current release workflow still attempts it, while the FFmpeg
+log-callback ABI is unresolved. It must not be treated as a verified public
+release artifact until an independent release build passes. The verified Linux
+release target is x86_64.
 
 ---
 
