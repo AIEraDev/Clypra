@@ -1,5 +1,6 @@
 use crate::models::Project;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -36,6 +37,56 @@ pub struct RecentProjectEntry {
     pub modified_at: Option<u64>,
     pub project: Option<Project>,
     pub error: Option<String>,
+}
+
+fn is_primary_project_entry(entry: &RecentProjectEntry, projects_dir: &Path) -> bool {
+    Path::new(&entry.path) == projects_dir.join(format!("{}.json", entry.id))
+}
+
+fn prefer_project_entry(
+    candidate: &RecentProjectEntry,
+    current: &RecentProjectEntry,
+    projects_dir: &Path,
+) -> bool {
+    let candidate_is_primary = is_primary_project_entry(candidate, projects_dir);
+    let current_is_primary = is_primary_project_entry(current, projects_dir);
+
+    if candidate_is_primary != current_is_primary {
+        return candidate_is_primary;
+    }
+
+    candidate
+        .modified_at
+        .unwrap_or_default()
+        .cmp(&current.modified_at.unwrap_or_default())
+        .is_gt()
+        || (candidate.modified_at.unwrap_or_default() == current.modified_at.unwrap_or_default()
+            && candidate.path < current.path)
+}
+
+fn dedupe_recent_project_entries(
+    entries: Vec<RecentProjectEntry>,
+    projects_dir: &Path,
+) -> Vec<RecentProjectEntry> {
+    let mut unique = HashMap::with_capacity(entries.len());
+    for entry in entries {
+        let should_replace = unique
+            .get(&entry.id)
+            .map(|current| prefer_project_entry(&entry, current, projects_dir))
+            .unwrap_or(true);
+        if should_replace {
+            unique.insert(entry.id.clone(), entry);
+        }
+    }
+
+    let mut entries: Vec<_> = unique.into_values().collect();
+    entries.sort_by(|a, b| {
+        b.modified_at
+            .unwrap_or_default()
+            .cmp(&a.modified_at.unwrap_or_default())
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    entries
 }
 
 fn get_projects_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -288,8 +339,7 @@ pub fn get_recent_projects(app: tauri::AppHandle) -> Result<Vec<RecentProjectEnt
         parse_work_us,
         false,
     );
-    projects.sort_by_key(|entry| std::cmp::Reverse(entry.modified_at.unwrap_or(0)));
-    Ok(projects)
+    Ok(dedupe_recent_project_entries(projects, &projects_dir))
 }
 
 const MAX_PROJECT_NAME_LENGTH: usize = 64;
@@ -401,6 +451,36 @@ mod tests {
         fs::write(&backup, old).unwrap();
         assert!(replace_primary(&missing_temp, &primary, &backup).is_err());
         assert_eq!(fs::read_to_string(&primary).unwrap(), old);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn duplicate_project_ids_prefer_the_canonical_project_file() {
+        let dir = test_dir("dedupe");
+        let canonical_path = dir.join("project-1.json");
+        let alternate_path = dir.join("project-1-25fps.json");
+        let entry = |path: &Path, modified_at| RecentProjectEntry {
+            kind: "ready".into(),
+            id: "project-1".into(),
+            name: Some("Project".into()),
+            path: path.to_string_lossy().into_owned(),
+            backup_path: String::new(),
+            backup_available: false,
+            modified_at,
+            project: None,
+            error: None,
+        };
+
+        let deduped = dedupe_recent_project_entries(
+            vec![
+                entry(&alternate_path, Some(200)),
+                entry(&canonical_path, Some(100)),
+            ],
+            &dir,
+        );
+
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].path, canonical_path.to_string_lossy());
         fs::remove_dir_all(dir).unwrap();
     }
 }

@@ -113,6 +113,7 @@ const App = () => {
   const autoUpdater = useAutoUpdater();
 
   const handleKeepTelemetrySharing = useCallback(() => {
+    PerfLogService.setTelemetryUploadEnabled(true);
     setShowTelemetryConsent(false);
   }, []);
 

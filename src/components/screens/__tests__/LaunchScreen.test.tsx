@@ -212,6 +212,28 @@ describe("LaunchScreen — Redesigned Experience", () => {
     expect(screen.queryByText("Summer Vacation Vlog")).toBeNull();
   });
 
+  it("does not render duplicate recent-project entries with the same id", async () => {
+    const duplicateProject = { ...sampleRecentProjects[0] };
+    useProjectStore.setState({
+      recentProjects: [...sampleRecentProjects, duplicateProject],
+    });
+    vi.spyOn(platform, "getRecentProjects").mockResolvedValue([
+      ...sampleRecentProjects,
+      duplicateProject,
+    ]);
+
+    render(
+      <LaunchScreen
+        onProjectCreate={mockOnProjectCreate}
+        onProjectOpen={mockOnProjectOpen}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Summer Vacation Vlog")).toHaveLength(1);
+    });
+  });
+
   it("toggles between Grid and List view modes for recent projects", () => {
     render(
       <LaunchScreen

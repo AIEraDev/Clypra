@@ -34,9 +34,18 @@ export const RecentProjectsWorkspace: React.FC<RecentProjectsWorkspaceProps> = (
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [sortBy, setSortBy] = useState<"recent" | "name">("recent");
 
+  const uniqueProjects = useMemo(() => {
+    const seen = new Set<string>();
+    return projects.filter((project) => {
+      if (seen.has(project.id)) return false;
+      seen.add(project.id);
+      return true;
+    });
+  }, [projects]);
+
   // Filter & sort projects
   const filteredProjects = useMemo(() => {
-    let result = [...projects];
+    let result = [...uniqueProjects];
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -59,7 +68,7 @@ export const RecentProjectsWorkspace: React.FC<RecentProjectsWorkspaceProps> = (
     });
 
     return result;
-  }, [projects, searchQuery, sortBy]);
+  }, [uniqueProjects, searchQuery, sortBy]);
 
   return (
     <section className="flex-1 pb-10">
@@ -70,17 +79,17 @@ export const RecentProjectsWorkspace: React.FC<RecentProjectsWorkspaceProps> = (
           <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider">
             {t("project.recent")}
           </h3>
-          {projects.length > 0 && (
+          {uniqueProjects.length > 0 && (
             <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-full bg-surface-elevated border border-border-subtle text-[10px] font-mono font-bold text-text-muted">
-              {filteredProjects.length !== projects.length
-                ? `${filteredProjects.length}/${projects.length}`
-                : projects.length}
+              {filteredProjects.length !== uniqueProjects.length
+                ? `${filteredProjects.length}/${uniqueProjects.length}`
+                : uniqueProjects.length}
             </span>
           )}
         </div>
 
         {/* View Switcher & Sorting */}
-        {projects.length > 0 && (
+        {uniqueProjects.length > 0 && (
           <div className="flex items-center gap-2.5">
             {/* Sort Select */}
             <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface-panel border border-border-subtle text-xs text-text-secondary">

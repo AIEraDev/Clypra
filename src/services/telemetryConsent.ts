@@ -33,7 +33,7 @@ export function resolveTelemetryUpload({
   stored,
   noticeShown,
 }: TelemetryUploadResolverInput): TelemetryUploadResolution {
-  if (isDev || envKill || stored === undefined || stored === "false") {
+  if (envKill || stored === undefined || stored === "false") {
     return disabled;
   }
 
@@ -41,7 +41,7 @@ export function resolveTelemetryUpload({
     return { enabled: true, consentState: "explicit-on" };
   }
 
-  if (stored === null && noticeShown) {
+  if (!isDev && stored === null && noticeShown) {
     return { enabled: true, consentState: "default" };
   }
 

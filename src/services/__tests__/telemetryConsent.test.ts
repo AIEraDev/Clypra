@@ -3,7 +3,6 @@ import { resolveTelemetryUpload } from "../telemetryConsent";
 
 describe("resolveTelemetryUpload", () => {
   it.each([
-    ["development build", { isDev: true, envKill: false, stored: null, noticeShown: true }],
     ["environment kill switch", { isDev: false, envKill: true, stored: null, noticeShown: true }],
     ["explicit opt-out", { isDev: false, envKill: false, stored: "false", noticeShown: true }],
     ["unreadable storage", { isDev: false, envKill: false, stored: undefined, noticeShown: true }],
@@ -13,18 +12,40 @@ describe("resolveTelemetryUpload", () => {
     expect(resolveTelemetryUpload(input)).toEqual({ enabled: false });
   });
 
-  it("enables explicit opt-in independently of the default notice", () => {
+  it("allows explicit opt-in during development", () => {
     expect(
       resolveTelemetryUpload({
-        isDev: false,
+        isDev: true,
         envKill: false,
         stored: "true",
-        noticeShown: false,
+        noticeShown: true,
       }),
     ).toEqual({ enabled: true, consentState: "explicit-on" });
   });
 
-  it("enables an absent value only after the notice was shown", () => {
+  it("keeps development uploads disabled without explicit opt-in", () => {
+    expect(
+      resolveTelemetryUpload({
+        isDev: true,
+        envKill: false,
+        stored: null,
+        noticeShown: true,
+      }),
+    ).toEqual({ enabled: false });
+  });
+
+  it("keeps the environment kill switch authoritative", () => {
+    expect(
+      resolveTelemetryUpload({
+        isDev: true,
+        envKill: true,
+        stored: "true",
+        noticeShown: true,
+      }),
+    ).toEqual({ enabled: false });
+  });
+
+  it("enables an absent value only after the notice was shown in production", () => {
     expect(
       resolveTelemetryUpload({
         isDev: false,
