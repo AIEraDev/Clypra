@@ -72,6 +72,40 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
     expect(event.workload.renderPath).toBeUndefined();
   });
 
+  it("does not emit a DXGI path on macOS before native GPU identity is ready", () => {
+    const originalUserAgent = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)",
+    });
+    (telemetryCollector as any).cachedHardware = null;
+
+    try {
+      expect(telemetryCollector.initHardwareContext().gpuModel).toBeNull();
+      telemetryCollector.recordRenderSpan(
+        { totalTimeUs: 25_000 },
+        0,
+        1,
+        {},
+        "playback",
+        undefined,
+        0,
+        0,
+        { forceSample: true, transferPath: "dxgi-zero-copy" },
+      );
+
+      const event = (telemetryCollector as any).queue[0];
+      expect(event.device.gpuModel).toBeNull();
+      expect(event.workload.transferPath).toBe("unknown");
+    } finally {
+      Object.defineProperty(navigator, "userAgent", {
+        configurable: true,
+        value: originalUserAgent,
+      });
+      (telemetryCollector as any).cachedHardware = null;
+    }
+  });
+
   it("records the adaptive embedded-readback policy on sampled spans", () => {
     telemetryCollector.recordRenderSpan(
       { totalTimeUs: 25_000 },

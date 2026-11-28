@@ -29,7 +29,8 @@ export interface TelemetryHardwareContext {
     | "arm"
     | "software"
     | "unknown";
-  gpuModel: string;
+  /** Null until a native or WebGL adapter probe supplies a model. */
+  gpuModel: string | null;
   gpuDriverVersion?: string;
   gpuVendorId?: number;
   gpuDeviceId?: number;
@@ -178,6 +179,25 @@ function classifyGpuVendor(
   if (/Mali/i.test(adapterName)) return "arm";
   if (/Adreno|Qualcomm/i.test(adapterName)) return "qualcomm";
   return "unknown";
+}
+
+/** Keep platform-specific transfer labels from crossing telemetry boundaries. */
+function normalizeTransferPathForOs(
+  value: string | undefined,
+  osFamily: TelemetryHardwareContext["osFamily"],
+): string | undefined {
+  if (!value) return value;
+  const path = value.toLowerCase().trim();
+  const explicitlyNonWindows = ["macos", "linux", "ios", "android"].includes(
+    osFamily,
+  );
+  if (
+    (explicitlyNonWindows && path.startsWith("dxgi-")) ||
+    (osFamily === "windows" && path.startsWith("metal-"))
+  ) {
+    return "unknown";
+  }
+  return path;
 }
 
 export type TelemetryDeviceOrigin =
@@ -2237,7 +2257,7 @@ class TelemetryCollector {
     }
 
     let gpuVendor: TelemetryHardwareContext["gpuVendor"] = "unknown";
-    let gpuModel = "Generic GPU";
+    let gpuModel: string | null = null;
 
     if (typeof document !== "undefined") {
       try {
@@ -2252,9 +2272,11 @@ class TelemetryCollector {
             const renderer =
               (gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL) as string) ||
               "";
-            gpuModel = renderer;
-            gpuVendor = classifyGpuVendor(renderer);
-            if (gpuVendor === "software") graphicsBackend = "software";
+            if (renderer) {
+              gpuModel = renderer;
+              gpuVendor = classifyGpuVendor(renderer);
+              if (gpuVendor === "software") graphicsBackend = "software";
+            }
           }
         }
       } catch {
@@ -2278,8 +2300,8 @@ class TelemetryCollector {
 
     const isHybridGpu =
       osFamily === "windows" &&
-      (/Laptop|Mobile/i.test(gpuModel) ||
-        (/NVIDIA/i.test(gpuModel) && /Intel|Radeon/i.test(userAgent)));
+      (/Laptop|Mobile/i.test(gpuModel ?? "") ||
+        (/NVIDIA/i.test(gpuModel ?? "") && /Intel|Radeon/i.test(userAgent)));
 
     const installId = getOrCreateHashedInstallId();
 
@@ -2338,14 +2360,15 @@ class TelemetryCollector {
     // never turn those known outcomes into `unknown` in the frontend rollup.
     // Keep `unknown` reserved for a genuinely missing producer tag on a frame
     // that reached the compositor.
-    const effectiveTransferPath =
-      options.transferPath ??
-      options.renderPath ??
-      (normalizedStaleFrames > 0
+    const hardware = this.initHardwareContext();
+    const explicitTransferPath = options.transferPath ?? options.renderPath;
+    const effectiveTransferPath = explicitTransferPath
+      ? normalizeTransferPathForOs(explicitTransferPath, hardware.osFamily)
+      : normalizedStaleFrames > 0
         ? "stale"
         : normalizedDroppedFrames > 0 || normalizedCancelledFrames > 0
           ? "dropped"
-          : undefined);
+          : undefined;
 
     if (options.includeInRollup !== false) {
       const accumulator = this.getRollupAccumulator(options.previewContext);
@@ -2493,8 +2516,6 @@ class TelemetryCollector {
     if (fullVideoProfile.isVfr && timings.totalTimeUs > deadlineUs) {
       diagnosedBottlenecks.push("vfr-presentation-jitter");
     }
-
-    const hardware = this.initHardwareContext();
 
     const event: TelemetryEvent = {
       eventId: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
