@@ -33,4 +33,25 @@ describe("normalizeUpdaterManifest", () => {
       }),
     ).toThrow("Clypra_x64.app.tar.gz");
   });
+
+  it("resolves GitHub API asset URLs by release asset ID", () => {
+    const apiManifest = {
+      platforms: {
+        "darwin-x86_64": {
+          signature: "signed",
+          url: "https://api.github.com/repos/AIEraDev/Clypra/releases/assets/803871645",
+        },
+      },
+    };
+
+    const normalized = normalizeUpdaterManifest(
+      apiManifest,
+      [{ id: "RA_fake", apiUrl: "https://api.github.com/repos/AIEraDev/Clypra/releases/assets/803871645", name: "Clypra_x64.app.tar.gz" }],
+      { repository: "AIEraDev/Clypra", tag: "v1.6.9" },
+    );
+
+    expect(normalized.platforms["darwin-x86_64"].url).toBe(
+      "https://github.com/AIEraDev/Clypra/releases/download/v1.6.9/Clypra_x64.app.tar.gz",
+    );
+  });
 });
