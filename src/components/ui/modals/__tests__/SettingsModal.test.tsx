@@ -56,6 +56,15 @@ describe("SettingsModal — Redesigned Experience", () => {
     expect(screen.getByRole("button", { name: /storage & cache/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /preview diagnostics/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /about/i })).toBeDefined();
+    expect(screen.getByRole("button", { name: /give feedback/i })).toBeDefined();
+  });
+
+  it("opens the Give Feedback tab when clicking the sidebar button", () => {
+    render(<SettingsModal isOpen={true} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /give feedback/i }));
+    expect(screen.getByText("Feedback Type")).toBeDefined();
+    expect(screen.getByRole("button", { name: /submit feedback/i })).toBeDefined();
   });
 
   it("switches tabs when clicking on sidebar buttons", () => {

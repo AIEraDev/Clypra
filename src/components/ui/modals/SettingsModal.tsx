@@ -6,6 +6,7 @@ import {
   HardDrive,
   Captions,
   Keyboard,
+  MessageSquarePlus,
 } from "lucide-react";
 import { platform } from "@/core/platform";
 import { Modal } from "../primitives/Modal";
@@ -19,6 +20,7 @@ import { WhisperSettings } from "@/components/settings/WhisperSettings";
 import { CacheSettings } from "@/components/settings/CacheSettings";
 import { AboutTab } from "@/components/settings/AboutTab";
 import { DiagnosticsTab } from "@/components/settings/DiagnosticsTab";
+import { FeedbackTab } from "@/components/settings/FeedbackTab";
 
 // Re-export shared primitives for backward compatibility
 export { SettingRow } from "@/components/settings/SettingRow";
@@ -36,7 +38,8 @@ export type SettingsTabId =
   | "captions"
   | "cache"
   | "diagnostics"
-  | "about";
+  | "about"
+  | "feedback";
 
 interface TabDefinition {
   id: SettingsTabId;
@@ -107,7 +110,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     if (
       isOpen &&
       settingsInitialTab &&
-      visibleTabs.some((t) => t.id === settingsInitialTab)
+      (settingsInitialTab === "feedback" ||
+        visibleTabs.some((t) => t.id === settingsInitialTab))
     ) {
       setActiveTab(settingsInitialTab as SettingsTabId);
     }
@@ -148,6 +152,27 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </button>
             );
           })}
+
+          <div className="md:mt-auto md:pt-2 md:border-t md:border-border-default/60 shrink-0">
+            <button
+              type="button"
+              onClick={() => setActiveTab("feedback")}
+              className={`w-full flex items-center gap-2.5 px-3 py-2.5 overflow-hidden cursor-pointer rounded-xl text-xs sm:text-[13px] font-medium transition-all ${
+                activeTab === "feedback"
+                  ? "text-accent-primary bg-accent-primary/10 border border-accent-primary/60 font-semibold shadow-xs"
+                  : "text-text-muted border border-border-default/70 hover:text-text-primary hover:bg-surface-hover"
+              }`}
+            >
+              <MessageSquarePlus
+                className={`w-4 h-4 shrink-0 ${
+                  activeTab === "feedback" ? "text-accent-primary" : "text-text-muted"
+                }`}
+              />
+              <span className="truncate">
+                {t("settings.tabs.feedback") || "Give Feedback"}
+              </span>
+            </button>
+          </div>
         </aside>
 
         {/* Content Stage */}
@@ -176,6 +201,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           {activeTab === "cache" && <CacheSettings />}
           {activeTab === "diagnostics" && <DiagnosticsTab />}
           {activeTab === "about" && <AboutTab />}
+          {activeTab === "feedback" && <FeedbackTab />}
         </main>
       </div>
     </Modal>

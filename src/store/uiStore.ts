@@ -58,6 +58,7 @@ interface UIStore {
     | "captions"
     | "cache"
     | "about"
+    | "feedback"
     | null;
 
   expandedKeyframeClipIds: string[];
@@ -108,7 +109,8 @@ interface UIStore {
       | "shortcuts"
       | "captions"
       | "cache"
-      | "about",
+      | "about"
+      | "feedback",
   ) => void;
 
   // Preview mode actions
