@@ -177,6 +177,13 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
   });
 
   it("preserves the native frame transfer path in render telemetry", () => {
+    const originalUserAgent = navigator.userAgent;
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    });
+    (telemetryCollector as any).cachedHardware = null;
+
     const events: any[] = [];
     const originalEnqueue = (telemetryCollector as any).enqueueEvent.bind(
       telemetryCollector,
@@ -223,6 +230,11 @@ describe("Production Telemetry Collector in Clypra Desktop", () => {
       expect(events[0].workload.presenter).toBe("native-surface");
     } finally {
       enqueueSpy.mockRestore();
+      Object.defineProperty(navigator, "userAgent", {
+        configurable: true,
+        value: originalUserAgent,
+      });
+      (telemetryCollector as any).cachedHardware = null;
     }
   });
 
