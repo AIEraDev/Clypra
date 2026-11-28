@@ -14,6 +14,40 @@
     "scope": { "type": "string", "minLength": 1 },
     "payload": { "type": "object" }
   },
+  "$defs": {
+    "transferPath": {
+      "type": "string",
+      "enum": [
+        "dxgi-zero-copy",
+        "metal-zero-copy-nv12",
+        "metal-zero-copy-p010",
+        "cpu-nv12",
+        "cpu-p010",
+        "cpu-rgba",
+        "mixed",
+        "gpu-raster",
+        "unknown",
+        "other"
+      ]
+    }
+  },
+  "$defs": {
+    "transferPath": {
+      "type": "string",
+      "enum": [
+        "dxgi-zero-copy",
+        "metal-zero-copy-nv12",
+        "metal-zero-copy-p010",
+        "cpu-nv12",
+        "cpu-p010",
+        "cpu-rgba",
+        "mixed",
+        "gpu-raster",
+        "unknown",
+        "other"
+      ]
+    }
+  },
   "allOf": [
     {
       "if": { "properties": { "kind": { "const": "session-header" } } },
